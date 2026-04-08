@@ -132,14 +132,8 @@ def evaluate_ips_compliance(
     benchmark_weights: Mapping[str, float] | None = None,
     tracking_error_budget: float | None = None,
 ) -> CROIPSDiagnostic:
-    violations: list[str] = []
-    for asset_slug in asset_slugs:
-        asset = get_asset(asset_slug)
-        weight = float(weights.get(asset_slug, 0.0))
-        if weight < asset.ips_min_weight - WEIGHT_TOLERANCE:
-            violations.append(f"{asset_slug} is below min weight {asset.ips_min_weight:.2%}")
-        if weight > asset.ips_max_weight + WEIGHT_TOLERANCE:
-            violations.append(f"{asset_slug} exceeds max weight {asset.ips_max_weight:.2%}")
+    weight_violations = _weight_bound_violations(weights=weights, asset_slugs=asset_slugs)
+    violations = list(weight_violations)
 
     tracking_error = 0.0
     within_tracking_budget = True
@@ -156,7 +150,7 @@ def evaluate_ips_compliance(
                 f"tracking error {tracking_error:.4f} exceeds budget {tracking_error_budget:.4f}"
             )
 
-    asset_bounds_ok = not any("weight" in violation for violation in violations)
+    asset_bounds_ok = not weight_violations
     passes = asset_bounds_ok and within_tracking_budget and not violations
     return CROIPSDiagnostic(
         tracking_error=tracking_error,
@@ -248,3 +242,15 @@ def _covariance_matrix(covariance_matrix: Sequence[Sequence[float]], asset_slugs
     if covariance.shape != expected_shape:
         raise ValueError(f"covariance_matrix must have shape {expected_shape}")
     return covariance
+
+
+def _weight_bound_violations(*, weights: Mapping[str, float], asset_slugs: Sequence[str]) -> tuple[str, ...]:
+    violations: list[str] = []
+    for asset_slug in asset_slugs:
+        asset = get_asset(asset_slug)
+        weight = float(weights.get(asset_slug, 0.0))
+        if weight < asset.ips_min_weight - WEIGHT_TOLERANCE:
+            violations.append(f"{asset_slug} is below min weight {asset.ips_min_weight:.2%}")
+        if weight > asset.ips_max_weight + WEIGHT_TOLERANCE:
+            violations.append(f"{asset_slug} exceeds max weight {asset.ips_max_weight:.2%}")
+    return tuple(violations)

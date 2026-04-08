@@ -106,6 +106,26 @@ class RiskMetricTests(unittest.TestCase):
         self.assertAlmostEqual(metrics.top5_concentration, 1.0, places=12)
         self.assertAlmostEqual(metrics.max_weight, 0.5, places=12)
 
+    def test_evaluate_ips_compliance_keeps_asset_bounds_true_for_tracking_only_breach(self) -> None:
+        from core.risk_metrics import evaluate_ips_compliance
+
+        diagnostic = evaluate_ips_compliance(
+            weights={"us_large_cap": 0.40, "us_interm_treasury": 0.40, "gold": 0.10, "cash": 0.10},
+            covariance_matrix=(
+                (0.040, 0.006, 0.004, 0.001),
+                (0.006, 0.020, 0.012, 0.001),
+                (0.004, 0.012, 0.025, 0.001),
+                (0.001, 0.001, 0.001, 0.005),
+            ),
+            asset_slugs=("us_large_cap", "us_interm_treasury", "gold", "cash"),
+            benchmark_weights={"us_large_cap": 0.10, "us_interm_treasury": 0.70, "gold": 0.10, "cash": 0.10},
+            tracking_error_budget=0.03,
+        )
+
+        self.assertTrue(diagnostic.asset_bounds_ok)
+        self.assertFalse(diagnostic.within_tracking_budget)
+        self.assertFalse(diagnostic.passes)
+
 
 if __name__ == "__main__":
     unittest.main()

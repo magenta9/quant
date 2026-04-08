@@ -171,7 +171,7 @@ class PortfolioProposalOutput(SerializableContract):
     expected_return: float
     expected_volatility: float
     sharpe_ratio: float
-    max_drawdown: float
+    max_drawdown: float | None
     effective_n: float
     concentration: float
     metadata: dict[str, Any]

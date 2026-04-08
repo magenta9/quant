@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 
@@ -61,6 +62,8 @@ class PortfolioMethodTests(unittest.TestCase):
             self.assertTrue(all(weight >= 0 for weight in proposal.weights.values()))
             self.assertGreater(proposal.expected_volatility, 0.0)
             self.assertIn("ips_constraints", proposal.metadata)
+            self.assertIsNone(proposal.max_drawdown)
+            self.assertEqual(proposal.metadata["max_drawdown_available"], False)
 
         inverse_vol = optimize_portfolio(
             method="inverse_volatility",
@@ -79,6 +82,29 @@ class PortfolioMethodTests(unittest.TestCase):
             risk_free_rate=0.02,
         )
         self.assertGreater(max_sharpe.weights["us_large_cap"], max_sharpe.weights["us_short_treasury"])
+
+        risk_parity = optimize_portfolio(
+            method="risk_parity",
+            covariance_output=covariance,
+            expected_returns=self.expected_returns,
+            generated_at="2026-04-09T12:00:00Z",
+            risk_free_rate=0.02,
+        )
+        risk_parity_contributions = self._risk_contributions(risk_parity.weights)
+        equal_weight_contributions = self._risk_contributions(
+            {
+                "us_large_cap": 0.25,
+                "us_short_treasury": 0.25,
+                "us_interm_treasury": 0.25,
+                "us_long_treasury": 0.25,
+            }
+        )
+        self.assertLess(
+            max(risk_parity_contributions) - min(risk_parity_contributions),
+            max(equal_weight_contributions) - min(equal_weight_contributions),
+        )
+        self.assertAlmostEqual(risk_parity.weights["us_short_treasury"], 0.30, places=8)
+        self.assertEqual(risk_parity.metadata["optimizer_status"], "bound_limited")
 
     def test_optimizer_raises_explicit_error_when_method_weights_breach_ips_bounds(self) -> None:
         from core.contracts import CorrelationMatrix, CovarianceOutput
@@ -103,6 +129,38 @@ class PortfolioMethodTests(unittest.TestCase):
                 generated_at="2026-04-09T12:00:00Z",
             )
 
+    def test_risk_parity_raises_when_iteration_budget_prevents_convergence(self) -> None:
+        from core.contracts import CorrelationMatrix, CovarianceOutput
+        from core.portfolio_optimizer import optimize_portfolio
+
+        covariance = CovarianceOutput(
+            generated_at="2026-04-09T12:00:00Z",
+            asset_slugs=self.asset_slugs,
+            covariance_matrix=self.covariance_matrix,
+            correlation_matrix=CorrelationMatrix(
+                values=(
+                    (1.0, 0.1, 0.2121320344, 0.1264911064),
+                    (0.1, 1.0, 0.2828427125, 0.1897366596),
+                    (0.2121320344, 0.2828427125, 1.0, 0.5366563146),
+                    (0.1264911064, 0.1897366596, 0.5366563146, 1.0),
+                )
+            ),
+            lookback_months=60,
+            annualization_factor=12,
+            shrinkage_method="ledoit_wolf",
+            regime_adjustment="none",
+        )
+
+        with patch("core.portfolio_optimizer.RISK_PARITY_MAX_ITERATIONS", 0):
+            with self.assertRaisesRegex(ValueError, "Risk parity did not converge"):
+                optimize_portfolio(
+                    method="risk_parity",
+                    covariance_output=covariance,
+                    expected_returns=self.expected_returns,
+                    generated_at="2026-04-09T12:00:00Z",
+                    risk_free_rate=0.02,
+                )
+
     def test_skill_contracts_document_shared_constraints_and_outputs(self) -> None:
         for method_name in (
             "equal_weight",
@@ -118,6 +176,17 @@ class PortfolioMethodTests(unittest.TestCase):
             self.assertIn("sum to 1", text)
             self.assertIn("portfolioproposaloutput", text)
             self.assertIn(method_name, text)
+
+    def _risk_contributions(self, weights: dict[str, float]) -> list[float]:
+        weight_vector = [weights[asset_slug] for asset_slug in self.asset_slugs]
+        contributions: list[float] = []
+        for row_index, asset_slug in enumerate(self.asset_slugs):
+            marginal = sum(
+                self.covariance_matrix[row_index][column_index] * weight_vector[column_index]
+                for column_index in range(len(self.asset_slugs))
+            )
+            contributions.append(weights[asset_slug] * marginal)
+        return contributions
 
 
 if __name__ == "__main__":
