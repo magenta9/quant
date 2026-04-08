@@ -78,10 +78,16 @@ TABLE_SCHEMAS: dict[str, tuple[ColumnDefinition, ...]] = {
     "board_memos": (
         ColumnDefinition("id", "INTEGER", "PRIMARY KEY"),
         ColumnDefinition("timestamp", "TEXT", "NOT NULL"),
-        ColumnDefinition("selected_ensemble", "TEXT"),
-        ColumnDefinition("portfolio_summary_json", "TEXT"),
-        ColumnDefinition("allocation_by_class_json", "TEXT"),
-        ColumnDefinition("top_positions_json", "TEXT"),
+        ColumnDefinition("selected_ensemble", "TEXT", "NOT NULL", additive_repair_default="''"),
+        ColumnDefinition("ensemble_weights_json", "TEXT", "NOT NULL", additive_repair_default="'{}'"),
+        ColumnDefinition("portfolio_summary_json", "TEXT", "NOT NULL", additive_repair_default="'{}'"),
+        ColumnDefinition("allocation_by_class_json", "TEXT", "NOT NULL", additive_repair_default="'{}'"),
+        ColumnDefinition("top_positions_json", "TEXT", "NOT NULL", additive_repair_default="'[]'"),
+        ColumnDefinition("changes_json", "TEXT", "NOT NULL", additive_repair_default="'[]'"),
+        ColumnDefinition("key_risks_json", "TEXT", "NOT NULL", additive_repair_default="'[]'"),
+        ColumnDefinition("rebalancing_plan", "TEXT", "NOT NULL", additive_repair_default="''"),
+        ColumnDefinition("ips_compliance_statement", "TEXT", "NOT NULL", additive_repair_default="''"),
+        ColumnDefinition("memo_path", "TEXT"),
         ColumnDefinition("memo_content", "TEXT", "NOT NULL", additive_repair_default="''"),
     ),
     "meta_feedback": (
@@ -250,6 +256,51 @@ def persist_risk_reports(database_path: str | Path, *, risk_reports: tuple[tuple
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
+        )
+        connection.commit()
+
+
+def persist_board_memo(
+    database_path: str | Path,
+    *,
+    timestamp: str,
+    board_memo: object,
+    memo_content: str,
+    memo_path: str | Path | None = None,
+) -> None:
+    payload = board_memo.to_dict()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO board_memos (
+                timestamp,
+                selected_ensemble,
+                ensemble_weights_json,
+                portfolio_summary_json,
+                allocation_by_class_json,
+                top_positions_json,
+                changes_json,
+                key_risks_json,
+                rebalancing_plan,
+                ips_compliance_statement,
+                memo_path,
+                memo_content
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                payload["selected_ensemble"],
+                json.dumps(payload["ensemble_weights"], sort_keys=True),
+                json.dumps(payload["portfolio_summary"], sort_keys=True),
+                json.dumps(payload["allocation_by_asset_class"], sort_keys=True),
+                json.dumps(payload["top_positions"], sort_keys=True),
+                json.dumps(payload["changes_since_last_review"], sort_keys=True),
+                json.dumps(payload["key_risks_to_monitor"], sort_keys=True),
+                payload["rebalancing_plan"],
+                payload["ips_compliance_statement"],
+                str(memo_path) if memo_path is not None else None,
+                memo_content,
+            ),
         )
         connection.commit()
 

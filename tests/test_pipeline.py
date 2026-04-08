@@ -301,6 +301,54 @@ class PipelineTests(unittest.TestCase):
 
         self.assertTrue(json.loads(stored_violations)["violations"])
 
+    def test_run_phase2_pipeline_writes_board_memo_markdown_and_persists_selected_memo(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+
+        result = run_phase2_pipeline(
+            ips_path=Path("config/ips.md"),
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="run-phase2-board-memo",
+        )
+
+        self.assertIn(result.board_memo.selected_ensemble, {"simple_average", "composite_score_weighting"})
+        self.assertEqual(
+            result.board_memo_path,
+            self.workspace / "output" / "board_memos" / "run-phase2-board-memo.md",
+        )
+        self.assertTrue(result.board_memo_path.exists())
+
+        memo_text = result.board_memo_path.read_text(encoding="utf-8")
+        self.assertIn("# CIO Board Memo", memo_text)
+        self.assertIn("## Macro Rationale", memo_text)
+        self.assertIn("## Allocation by Asset Class", memo_text)
+        self.assertIn("## Risk Metrics", memo_text)
+        self.assertIn("## IPS Compliance", memo_text)
+
+        board_memo_payload = json.loads((result.run_directory / "cio" / "board_memo.json").read_text(encoding="utf-8"))
+        self.assertEqual(board_memo_payload["selected_ensemble"], result.board_memo.selected_ensemble)
+        self.assertIn("ips_compliance_statement", board_memo_payload)
+
+        with sqlite3.connect(self.database_path) as connection:
+            stored_memo = connection.execute(
+                """
+                SELECT selected_ensemble, portfolio_summary_json, memo_content, ips_compliance_statement
+                FROM board_memos
+                """
+            ).fetchone()
+
+        self.assertIsNotNone(stored_memo)
+        self.assertEqual(stored_memo[0], result.board_memo.selected_ensemble)
+        self.assertEqual(
+            json.loads(stored_memo[1])["tracking_error_vs_60_40"],
+            result.board_memo.portfolio_summary["tracking_error_vs_60_40"],
+        )
+        self.assertIn("IPS Compliance", stored_memo[2])
+        self.assertEqual(stored_memo[3], result.board_memo.ips_compliance_statement)
+
     def test_run_phase2_pipeline_rejects_ips_that_do_not_cover_all_registered_assets(self) -> None:
         from core.pipeline import run_phase2_pipeline
 
@@ -352,6 +400,26 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(_normalize_rate(-2.0), 0.0)
         self.assertEqual(_normalize_rate(0.03), 0.03)
         self.assertEqual(_normalize_rate(3.5), 0.035)
+
+    def test_pipeline_main_runs_end_to_end_from_cli_arguments(self) -> None:
+        from core.pipeline import main
+
+        exit_code = main(
+            [
+                "--ips-path",
+                "config/ips.md",
+                "--output-root",
+                str(self.workspace / "output" / "runs"),
+                "--database-path",
+                str(self.database_path),
+                "--run-id",
+                "run-phase2-cli",
+            ],
+            data_provider=_StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009}),
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue((self.workspace / "output" / "board_memos" / "run-phase2-cli.md").exists())
 
 
 if __name__ == "__main__":

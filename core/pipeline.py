@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -7,19 +8,21 @@ from typing import Protocol
 
 from core.assets import ASSET_DEFINITIONS, ASSET_ORDER, get_asset
 from core.cma_builder import AssetAnalysisResult, run_asset_analysis
-from core.contracts import CROIPSDiagnostic, CRORiskReportOutput
+from core.contracts import CIOBoardMemoOutput, CROIPSDiagnostic, CRORiskReportOutput
 from core.covariance import _build_aligned_returns_matrix, estimate_covariance
 from core.data_fetcher import AssetHistoryResult, YFinanceDataProvider
 from core.database import (
     initialize_database,
+    persist_board_memo,
     persist_cma_methods,
     persist_macro_view,
     persist_portfolio_stage,
 )
+from core.ensemble import run_cio_stage
 from core.macro_analyzer import MacroStageResult, run_macro_stage
 from core.portfolio_optimizer import METHOD_REGISTRY, optimize_portfolio
 from core.risk_metrics import build_risk_report
-from core.utils import ensure_directory, generate_run_id, write_json
+from core.utils import ensure_directory, generate_run_id, write_json, write_markdown
 
 MVP_PORTFOLIO_METHODS = (
     "equal_weight",
@@ -56,12 +59,14 @@ class Phase2DataProvider(Protocol):
 class Phase2PipelineResult:
     run_id: str
     run_directory: Path
+    board_memo_path: Path
     ips_assets: tuple[str, ...]
     macro_result: MacroStageResult
     asset_results: tuple[AssetAnalysisResult, ...]
     covariance_output: object
     portfolio_proposals: tuple[object, ...]
     risk_reports: tuple[object, ...]
+    board_memo: CIOBoardMemoOutput
     database_path: Path
 
 
@@ -88,6 +93,8 @@ def run_phase2_pipeline(
     covariance_directory = ensure_directory(run_directory / "covariance")
     portfolio_directory = ensure_directory(run_directory / "portfolio")
     risk_directory = ensure_directory(run_directory / "risk")
+    cio_directory = ensure_directory(run_directory / "cio")
+    board_memos_directory = ensure_directory(Path(output_root).parent / "board_memos")
 
     macro_result = run_macro_stage(output_dir=macro_directory, data_provider=provider)
     persist_macro_view(resolved_database_path, macro_result.macro_view)
@@ -174,15 +181,33 @@ def run_phase2_pipeline(
     for risk_report in risk_reports:
         write_json(risk_directory / risk_report.method / "risk_report.json", risk_report.to_dict())
 
+    board_memo = run_cio_stage(proposals=portfolio_proposals, risk_reports=risk_reports)
+    write_json(cio_directory / "board_memo.json", board_memo.to_dict())
+    memo_content = render_board_memo_markdown(
+        run_id=active_run_id,
+        macro_result=macro_result,
+        board_memo=board_memo,
+    )
+    board_memo_path = write_markdown(board_memos_directory / f"{active_run_id}.md", memo_content)
+    persist_board_memo(
+        resolved_database_path,
+        timestamp=macro_result.macro_view.timestamp,
+        board_memo=board_memo,
+        memo_content=memo_content,
+        memo_path=board_memo_path,
+    )
+
     return Phase2PipelineResult(
         run_id=active_run_id,
         run_directory=run_directory,
+        board_memo_path=board_memo_path,
         ips_assets=ips_assets,
         macro_result=macro_result,
         asset_results=tuple(asset_results),
         covariance_output=covariance_output,
         portfolio_proposals=portfolio_proposals,
         risk_reports=risk_reports,
+        board_memo=board_memo,
         database_path=resolved_database_path,
     )
 
@@ -269,6 +294,77 @@ def annotate_projection_warnings(risk_report: CRORiskReportOutput, *, proposal: 
     )
 
 
+def render_board_memo_markdown(
+    *,
+    run_id: str,
+    macro_result: MacroStageResult,
+    board_memo: CIOBoardMemoOutput,
+) -> str:
+    macro_view = macro_result.macro_view
+    allocation_lines = "\n".join(
+        f"| {asset_class.replace('_', ' ').title()} | {weight:.2%} |"
+        for asset_class, weight in sorted(board_memo.allocation_by_asset_class.items())
+    )
+    top_position_lines = "\n".join(
+        f"| {position.asset} | {position.weight:.2%} | {position.risk_contrib:.2%} |"
+        for position in board_memo.top_positions
+    )
+    key_risks = "\n".join(f"- {risk}" for risk in board_memo.key_risks_to_monitor or ("No material CIO risks flagged.",))
+    macro_risks = "\n".join(f"- {risk}" for risk in macro_view.risks or ("No incremental macro risks flagged.",))
+    return (
+        f"# CIO Board Memo\n\n"
+        f"- Run ID: `{run_id}`\n"
+        f"- Timestamp: `{macro_view.timestamp}`\n"
+        f"- Selected ensemble: `{board_memo.selected_ensemble}`\n"
+        f"- IPS status: **{board_memo.ips_compliance_statement}**\n\n"
+        f"## Macro Rationale\n\n"
+        f"- Regime: **{macro_view.regime}** ({macro_view.confidence} confidence)\n"
+        f"- Outlook: {macro_view.outlook}\n"
+        f"- Allocation implications: {macro_view.allocation_implications}\n"
+        f"- Macro risks:\n{macro_risks}\n\n"
+        f"## Allocation by Asset Class\n\n"
+        f"| Asset Class | Weight |\n"
+        f"| --- | --- |\n"
+        f"{allocation_lines}\n\n"
+        f"## Top Positions\n\n"
+        f"| Asset | Weight | Risk Contribution Proxy |\n"
+        f"| --- | --- | --- |\n"
+        f"{top_position_lines}\n\n"
+        f"## Risk Metrics\n\n"
+        f"- Expected return: {board_memo.portfolio_summary['expected_return']:.2%}\n"
+        f"- Expected volatility: {board_memo.portfolio_summary['expected_volatility']:.2%}\n"
+        f"- Sharpe ratio: {board_memo.portfolio_summary['sharpe_ratio']:.2f}\n"
+        f"- Effective N: {board_memo.portfolio_summary['effective_n']:.2f}\n"
+        f"- Tracking error vs 60/40: {board_memo.portfolio_summary['tracking_error_vs_60_40']:.2%}\n\n"
+        f"## IPS Compliance\n\n"
+        f"- Statement: **{board_memo.ips_compliance_statement}**\n"
+        f"- Rebalancing plan: {board_memo.rebalancing_plan}\n"
+        f"- Risks to monitor:\n{key_risks}\n"
+    )
+
+
+def build_argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run the self-driving portfolio pipeline end to end.")
+    parser.add_argument("--ips-path", default="config/ips.md")
+    parser.add_argument("--output-root", default="output/runs")
+    parser.add_argument("--database-path", default="database/portfolio.db")
+    parser.add_argument("--run-id", default=None)
+    return parser
+
+
+def main(argv: list[str] | None = None, *, data_provider: Phase2DataProvider | None = None) -> int:
+    args = build_argument_parser().parse_args(argv)
+    result = run_phase2_pipeline(
+        ips_path=args.ips_path,
+        output_root=args.output_root,
+        database_path=args.database_path,
+        data_provider=data_provider,
+        run_id=args.run_id,
+    )
+    print(f"Run {result.run_id} complete: board memo written to {result.board_memo_path}")
+    return 0
+
+
 def _normalize_rate(raw_rate: float | None) -> float:
     if raw_rate is None:
         return 0.0
@@ -293,3 +389,7 @@ class _CachingPipelineProvider:
                 interval=interval,
             )
         return self._history_cache[cache_key]
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
