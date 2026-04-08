@@ -135,6 +135,37 @@ class EnsembleTests(unittest.TestCase):
         self.assertEqual(selected.key_risks_to_monitor, ("tracking error 0.0900 exceeds budget 0.0600",))
         self.assertFalse(hasattr(selected, "candidate_score"))
 
+    def test_cio_selection_entrypoint_serializes_contract_payload(self) -> None:
+        from core.ensemble import select_cio_ensemble
+
+        proposals = (
+            self._make_proposal("equal_weight", "heuristic", 0.20, 0.80, expected_return=0.050, volatility=0.060, sharpe=0.50, effective_n=2.0),
+            self._make_proposal("inverse_volatility", "heuristic", 0.40, 0.60, expected_return=0.060, volatility=0.070, sharpe=0.57, effective_n=2.4),
+        )
+        risk_reports = (
+            self._make_risk_report("equal_weight", backtest_sharpe=0.45, tracking_error=0.030, passes=True),
+            self._make_risk_report("inverse_volatility", backtest_sharpe=0.50, tracking_error=0.025, passes=True),
+        )
+
+        payload = select_cio_ensemble(proposals=proposals, risk_reports=risk_reports).to_dict()
+
+        self.assertEqual(
+            set(payload),
+            {
+                "selected_ensemble",
+                "ensemble_weights",
+                "portfolio_summary",
+                "allocation_by_asset_class",
+                "top_positions",
+                "changes_since_last_review",
+                "key_risks_to_monitor",
+                "rebalancing_plan",
+                "ips_compliance_statement",
+            },
+        )
+        self.assertNotIn("candidate_score", payload)
+        self.assertNotIn("rationale", payload)
+
     def test_cio_selection_non_compliant_case_does_not_claim_preserved_ips(self) -> None:
         from core.contracts import CIOBoardMemoOutput
         from core.ensemble import select_cio_ensemble
@@ -166,6 +197,38 @@ class EnsembleTests(unittest.TestCase):
 
         self.assertIsInstance(selected, CIOBoardMemoOutput)
         self.assertEqual(selected.ips_compliance_statement, "NON-COMPLIANT")
+
+    def test_internal_selection_rationale_is_truthful_for_non_compliant_choice(self) -> None:
+        from core.ensemble import _select_best_candidate
+
+        proposals = (
+            self._make_proposal("max_sharpe", "return_optimized", 0.55, 0.45, expected_return=0.082, volatility=0.100, sharpe=0.62, effective_n=3.1),
+            self._make_proposal("inverse_volatility", "heuristic", 0.35, 0.65, expected_return=0.058, volatility=0.072, sharpe=0.53, effective_n=2.6),
+        )
+        risk_reports = (
+            self._make_risk_report(
+                "max_sharpe",
+                backtest_sharpe=0.61,
+                tracking_error=0.081,
+                passes=False,
+                max_drawdown=-0.12,
+                violations=("tracking error 0.0810 exceeds budget 0.0600",),
+            ),
+            self._make_risk_report(
+                "inverse_volatility",
+                backtest_sharpe=0.46,
+                tracking_error=0.074,
+                passes=False,
+                max_drawdown=-0.16,
+                violations=("tracking error 0.0740 exceeds budget 0.0600",),
+            ),
+        )
+
+        selected = _select_best_candidate(proposals=proposals, risk_reports=risk_reports)
+
+        self.assertEqual(selected.ips_compliance_statement, "NON-COMPLIANT")
+        self.assertIn("did not preserve ips compliance", selected.rationale.lower())
+        self.assertNotIn("preserved ips compliance and", selected.rationale.lower())
 
     def test_top_positions_use_concentration_proxy_not_raw_weight(self) -> None:
         from core.ensemble import build_ensemble_candidate
