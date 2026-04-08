@@ -48,6 +48,29 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(payload["key_indicators"]["vix"], 18.5)
         self.assertEqual(payload["risks"], ["oil shock", "policy error"])
 
+    def test_macro_view_supports_explicitly_missing_indicator_values(self) -> None:
+        macro_view = MacroView(
+            timestamp="2026-04-09T12:00:00Z",
+            regime="recovery",
+            confidence="low",
+            scores=MacroScores(growth=0, inflation=0, monetary_policy=0, financial_conditions=1),
+            composite_score=0.1,
+            recession_probability=0.33,
+            key_indicators=IndicatorSnapshot(
+                gdp_growth_yoy=None,
+                cpi_yoy=None,
+                fed_funds_rate=None,
+                vix=20.0,
+                credit_spreads=None,
+            ),
+            outlook="Several inputs are unavailable.",
+        )
+
+        payload = macro_view.to_dict()
+
+        self.assertIsNone(payload["key_indicators"]["gdp_growth_yoy"])
+        self.assertEqual(payload["key_indicators"]["vix"], 20.0)
+
     def test_macro_view_rejects_unknown_regime(self) -> None:
         with self.assertRaisesRegex(ValueError, "regime"):
             MacroView(

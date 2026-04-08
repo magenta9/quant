@@ -37,11 +37,11 @@ class MacroScores(SerializableContract):
 
 @dataclass(frozen=True, slots=True)
 class IndicatorSnapshot(SerializableContract):
-    gdp_growth_yoy: float
-    cpi_yoy: float
-    fed_funds_rate: float
-    vix: float
-    credit_spreads: float
+    gdp_growth_yoy: float | None
+    cpi_yoy: float | None
+    fed_funds_rate: float | None
+    vix: float | None
+    credit_spreads: float | None
 
 
 @dataclass(frozen=True, slots=True)

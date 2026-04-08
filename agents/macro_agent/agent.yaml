@@ -1,0 +1,31 @@
+version: 1
+kind: macro-agent
+agent:
+  family: macro
+  role: Chief Macro Economist
+  slug: macro_agent
+  stage: 1
+purpose: >-
+  Wrapper for the deterministic macro engine. The agent should fetch supported macro
+  indicators, score the four regime dimensions explicitly, and surface unsupported
+  inputs instead of inferring missing series.
+runtime:
+  module: core.macro_analyzer
+  callable: run_macro_stage
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - config/ips.md
+  - macro indicators from core.data_fetcher.YFinanceDataProvider
+outputs:
+  - output/runs/{run_id}/macro/macro_view.json
+  - output/runs/{run_id}/macro/macro_analysis.md
+contract:
+  json_contract: core.contracts.MacroView
+  extra_fields:
+    - indicator_diagnostics
+    - unsupported_inputs
+    - partial_inputs
+notes:
+  - Keep regime scoring deterministic.
+  - Do not fabricate unsupported GDP, CPI, policy-rate, or credit-spread series.
