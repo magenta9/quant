@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_long_treasury"
+  role: "US Long Treasury Analyst"
+metadata:
+  asset_slug: "us_long_treasury"
+  asset_name: "US Long Treasury"
+  benchmark_label: "BPTXY10 Index"
+  proxy_ticker: "TLT"
+  group: "fixed_income"
+  category: "treasury"
+  macro_tags:
+    - "rates"
+    - "credit"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.30

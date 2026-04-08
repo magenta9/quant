@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "intl_corporate"
+  role: "Intl Corporate Analyst"
+metadata:
+  asset_slug: "intl_corporate"
+  asset_name: "Intl Corporate"
+  benchmark_label: "LGCPTRUU Index"
+  proxy_ticker: "PICB"
+  group: "fixed_income"
+  category: "international_fixed_income"
+  macro_tags:
+    - "rates"
+    - "credit"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15

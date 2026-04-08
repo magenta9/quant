@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_small_cap"
+  role: "US Small Cap Equity Analyst"
+metadata:
+  asset_slug: "us_small_cap"
+  asset_name: "US Small Cap Equity"
+  benchmark_label: "SMLTR Index"
+  proxy_ticker: "IWM"
+  group: "equity"
+  category: "us_equity"
+  macro_tags:
+    - "growth"
+    - "rates"
+    - "credit"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15

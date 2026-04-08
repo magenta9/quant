@@ -1,0 +1,46 @@
+version: 1
+kind: asset-class-agent
+template: true
+agent:
+  family: asset_class
+  role: "{asset_name} Analyst"
+  slug: "{asset_slug}"
+  stage: 2
+  dependencies:
+    - macro_agent
+purpose: >-
+  Thin wrapper around the deterministic asset CMA core. Asset wrappers should only
+  supply metadata and invoke shared logic in core.cma_builder rather than
+  duplicating calculations.
+runtime:
+  module: core.cma_builder
+  callable: run_asset_analysis
+  kwargs:
+    asset_slug: "{asset_slug}"
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - config/ips.md
+  - output/runs/{run_id}/macro/macro_view.json
+  - market history for proxy ticker {proxy_ticker}
+outputs:
+  - output/runs/{run_id}/assets/{asset_slug}/cma_methods.json
+  - output/runs/{run_id}/assets/{asset_slug}/cma.json
+  - output/runs/{run_id}/assets/{asset_slug}/signals.json
+  - output/runs/{run_id}/assets/{asset_slug}/historical_stats.json
+  - output/runs/{run_id}/assets/{asset_slug}/scenarios.json
+  - output/runs/{run_id}/assets/{asset_slug}/correlation_row.json
+  - output/runs/{run_id}/assets/{asset_slug}/analysis.md
+required_metadata:
+  - asset_slug
+  - asset_name
+  - benchmark_label
+  - proxy_ticker
+  - group
+  - category
+  - macro_tags
+  - ips_min_weight
+  - ips_max_weight
+notes:
+  - Keep agent wrappers metadata-only and deterministic-core-first.
+  - Emit structured stubs for paid-data-dependent CMA methods instead of silent approximations.

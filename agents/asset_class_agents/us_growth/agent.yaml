@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_growth"
+  role: "US Growth Equity Analyst"
+metadata:
+  asset_slug: "us_growth"
+  asset_name: "US Growth Equity"
+  benchmark_label: "CSUSGRWU Index"
+  proxy_ticker: "IWF"
+  group: "equity"
+  category: "us_equity"
+  macro_tags:
+    - "growth"
+    - "rates"
+    - "risk"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

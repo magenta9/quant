@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_value"
+  role: "US Value Equity Analyst"
+metadata:
+  asset_slug: "us_value"
+  asset_name: "US Value Equity"
+  benchmark_label: "CSUSVALU Index"
+  proxy_ticker: "IWD"
+  group: "equity"
+  category: "us_equity"
+  macro_tags:
+    - "value"
+    - "rates"
+    - "economy"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

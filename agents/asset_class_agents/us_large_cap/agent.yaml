@@ -1,0 +1,21 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_large_cap"
+  role: "US Large Cap Equity Analyst"
+metadata:
+  asset_slug: "us_large_cap"
+  asset_name: "US Large Cap Equity"
+  benchmark_label: "SPTR Index"
+  proxy_ticker: "VTI"
+  group: "equity"
+  category: "us_equity"
+  macro_tags:
+    - "growth"
+    - "rates"
+    - "inflation"
+    - "dollar"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.50

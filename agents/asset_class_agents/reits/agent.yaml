@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "reits"
+  role: "REITs Analyst"
+metadata:
+  asset_slug: "reits"
+  asset_name: "REITs"
+  benchmark_label: "FTV Index"
+  proxy_ticker: "VNQ"
+  group: "real_assets"
+  category: "real_assets"
+  macro_tags:
+    - "rates"
+    - "growth"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15

@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "ig_corporate"
+  role: "IG Corporate Analyst"
+metadata:
+  asset_slug: "ig_corporate"
+  asset_name: "IG Corporate"
+  benchmark_label: "CPATREIT Index"
+  proxy_ticker: "LQD"
+  group: "fixed_income"
+  category: "credit"
+  macro_tags:
+    - "rates"
+    - "credit"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

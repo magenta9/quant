@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "hy_corporate"
+  role: "HY Corporate Analyst"
+metadata:
+  asset_slug: "hy_corporate"
+  asset_name: "HY Corporate"
+  benchmark_label: "HWCI Index"
+  proxy_ticker: "HYG"
+  group: "fixed_income"
+  category: "credit"
+  macro_tags:
+    - "rates"
+    - "credit"
+    - "risk"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15

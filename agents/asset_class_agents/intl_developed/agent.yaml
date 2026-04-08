@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "intl_developed"
+  role: "Intl Developed Equity Analyst"
+metadata:
+  asset_slug: "intl_developed"
+  asset_name: "Intl Developed Equity"
+  benchmark_label: "MXWO Index"
+  proxy_ticker: "VEA"
+  group: "equity"
+  category: "international_equity"
+  macro_tags:
+    - "growth"
+    - "dollar"
+    - "eafe"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.30
