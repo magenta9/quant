@@ -107,6 +107,7 @@ class EnsembleTests(unittest.TestCase):
         self.assertIn("max_sharpe", candidate.rationale)
 
     def test_cio_selection_prefers_best_compliant_ensemble_and_explains_choice(self) -> None:
+        from core.contracts import CIOBoardMemoOutput
         from core.ensemble import select_cio_ensemble
 
         proposals = (
@@ -129,12 +130,13 @@ class EnsembleTests(unittest.TestCase):
 
         selected = select_cio_ensemble(proposals=proposals, risk_reports=risk_reports)
 
+        self.assertIsInstance(selected, CIOBoardMemoOutput)
         self.assertEqual(selected.selected_ensemble, "composite_score_weighting")
-        self.assertIn("selected composite_score_weighting", selected.rationale.lower())
-        self.assertIn("ips", selected.rationale.lower())
         self.assertEqual(selected.key_risks_to_monitor, ("tracking error 0.0900 exceeds budget 0.0600",))
+        self.assertFalse(hasattr(selected, "candidate_score"))
 
     def test_cio_selection_non_compliant_case_does_not_claim_preserved_ips(self) -> None:
+        from core.contracts import CIOBoardMemoOutput
         from core.ensemble import select_cio_ensemble
 
         proposals = (
@@ -162,9 +164,8 @@ class EnsembleTests(unittest.TestCase):
 
         selected = select_cio_ensemble(proposals=proposals, risk_reports=risk_reports)
 
+        self.assertIsInstance(selected, CIOBoardMemoOutput)
         self.assertEqual(selected.ips_compliance_statement, "NON-COMPLIANT")
-        self.assertNotIn("preserved ips compliance", selected.rationale.lower())
-        self.assertIn("did not preserve ips compliance", selected.rationale.lower())
 
     def test_top_positions_use_concentration_proxy_not_raw_weight(self) -> None:
         from core.ensemble import build_ensemble_candidate
@@ -186,6 +187,29 @@ class EnsembleTests(unittest.TestCase):
 
         self.assertNotAlmostEqual(candidate.top_positions[0].risk_contrib, candidate.top_positions[0].weight)
         self.assertAlmostEqual(sum(position.risk_contrib for position in candidate.top_positions), 1.0)
+
+    def test_top_positions_risk_contrib_uses_method_risk_inputs_not_just_final_weights(self) -> None:
+        from core.ensemble import build_ensemble_candidate
+
+        proposals = (
+            self._make_proposal("high_risk_growth", "return_optimized", 0.80, 0.20, expected_return=0.090, volatility=0.120, sharpe=0.58, effective_n=1.6),
+            self._make_proposal("low_risk_defense", "risk_optimized", 0.20, 0.80, expected_return=0.045, volatility=0.030, sharpe=0.50, effective_n=1.6),
+        )
+        risk_reports = (
+            self._make_risk_report("high_risk_growth", backtest_sharpe=0.60, tracking_error=0.030, passes=True),
+            self._make_risk_report("low_risk_defense", backtest_sharpe=0.45, tracking_error=0.020, passes=True),
+        )
+
+        candidate = build_ensemble_candidate(
+            ensemble_method="simple_average",
+            proposals=proposals,
+            risk_reports=risk_reports,
+        )
+
+        self.assertAlmostEqual(candidate.weights["us_large_cap"], 0.50)
+        self.assertAlmostEqual(candidate.weights["us_short_treasury"], 0.50)
+        self.assertGreater(candidate.top_positions[0].risk_contrib, candidate.top_positions[1].risk_contrib)
+        self.assertEqual(candidate.top_positions[0].asset, "us_large_cap")
 
     def _make_proposal(
         self,

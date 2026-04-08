@@ -22,7 +22,6 @@ class EnsembleCandidate:
     key_risks_to_monitor: tuple[str, ...]
     ips_compliance_statement: str
     rationale: str
-    candidate_score: float
 
 
 def build_ensemble_candidate(
@@ -58,13 +57,11 @@ def build_ensemble_candidate(
     ips_compliance_statement = "COMPLIANT" if ips_compliant else "NON-COMPLIANT"
     top_positions = tuple(
         TopPosition(asset=asset_slug, weight=weight, risk_contrib=risk_contrib)
-        for asset_slug, weight, risk_contrib in _top_position_rows(blended_weights)[:5]
-    )
-    candidate_score = (
-        (10.0 if ips_compliant else 0.0)
-        + portfolio_summary["sharpe_ratio"]
-        + (0.05 * portfolio_summary["effective_n"])
-        - portfolio_summary["tracking_error_vs_60_40"]
+        for asset_slug, weight, risk_contrib in _top_position_rows(
+            aligned_pairs=aligned_pairs,
+            ensemble_weights=ensemble_weights,
+            blended_weights=blended_weights,
+        )[:5]
     )
     supporting_methods = ", ".join(
         method
@@ -87,11 +84,19 @@ def build_ensemble_candidate(
         key_risks_to_monitor=_collect_key_risks(risk_reports),
         ips_compliance_statement=ips_compliance_statement,
         rationale=rationale,
-        candidate_score=candidate_score,
     )
 
 
 def select_cio_ensemble(
+    *,
+    proposals: Sequence[PortfolioProposalOutput],
+    risk_reports: Sequence[CRORiskReportOutput],
+) -> CIOBoardMemoOutput:
+    selected = _select_best_candidate(proposals=proposals, risk_reports=risk_reports)
+    return _candidate_to_board_memo(selected)
+
+
+def _select_best_candidate(
     *,
     proposals: Sequence[PortfolioProposalOutput],
     risk_reports: Sequence[CRORiskReportOutput],
@@ -104,7 +109,7 @@ def select_cio_ensemble(
         )
         for ensemble_method in SUPPORTED_ENSEMBLES
     )
-    selected = max(candidates, key=lambda candidate: (candidate.candidate_score, candidate.selected_ensemble))
+    selected = max(candidates, key=lambda candidate: (_candidate_rank(candidate), candidate.selected_ensemble))
     contributor_text = ", ".join(
         method
         for method, weight in sorted(selected.ensemble_weights.items(), key=lambda item: (-item[1], item[0]))
@@ -130,7 +135,6 @@ def select_cio_ensemble(
         key_risks_to_monitor=selected.key_risks_to_monitor,
         ips_compliance_statement=selected.ips_compliance_statement,
         rationale=rationale,
-        candidate_score=selected.candidate_score,
     )
 
 
@@ -139,19 +143,22 @@ def run_cio_stage(
     proposals: Sequence[PortfolioProposalOutput],
     risk_reports: Sequence[CRORiskReportOutput],
 ) -> CIOBoardMemoOutput:
-    selected = select_cio_ensemble(proposals=proposals, risk_reports=risk_reports)
+    return select_cio_ensemble(proposals=proposals, risk_reports=risk_reports)
+
+
+def _candidate_to_board_memo(candidate: EnsembleCandidate) -> CIOBoardMemoOutput:
     return CIOBoardMemoOutput(
-        selected_ensemble=selected.selected_ensemble,
-        ensemble_weights=selected.ensemble_weights,
-        portfolio_summary=selected.portfolio_summary,
-        allocation_by_asset_class=selected.allocation_by_asset_class,
-        top_positions=selected.top_positions,
+        selected_ensemble=candidate.selected_ensemble,
+        ensemble_weights=candidate.ensemble_weights,
+        portfolio_summary=candidate.portfolio_summary,
+        allocation_by_asset_class=candidate.allocation_by_asset_class,
+        top_positions=candidate.top_positions,
         changes_since_last_review=(),
-        key_risks_to_monitor=selected.key_risks_to_monitor,
+        key_risks_to_monitor=candidate.key_risks_to_monitor,
         rebalancing_plan=(
             "Review quarterly unless IPS drift, tracking-error breaches, or macro regime changes require an off-cycle CIO reassessment."
         ),
-        ips_compliance_statement=selected.ips_compliance_statement,
+        ips_compliance_statement=candidate.ips_compliance_statement,
     )
 
 
@@ -262,15 +269,34 @@ def _allocation_by_asset_class(weights: dict[str, float]) -> dict[str, float]:
     return allocation
 
 
-def _top_position_rows(weights: dict[str, float]) -> list[tuple[str, float, float]]:
-    concentration_total = sum(weight * weight for weight in weights.values())
-    if concentration_total <= _WEIGHT_TOLERANCE:
-        concentration_total = 1.0
+def _top_position_rows(
+    *,
+    aligned_pairs: dict[str, tuple[PortfolioProposalOutput, CRORiskReportOutput]],
+    ensemble_weights: dict[str, float],
+    blended_weights: dict[str, float],
+) -> list[tuple[str, float, float]]:
+    risk_proxy_by_asset = {asset_slug: 0.0 for asset_slug in blended_weights}
+    for method, (proposal, _risk_report) in aligned_pairs.items():
+        method_weight = ensemble_weights.get(method, 0.0)
+        for asset_slug, asset_weight in proposal.weights.items():
+            risk_proxy_by_asset[asset_slug] += method_weight * proposal.expected_volatility * (asset_weight**2)
+    total_risk_proxy = sum(risk_proxy_by_asset.values())
+    if total_risk_proxy <= _WEIGHT_TOLERANCE:
+        total_risk_proxy = 1.0
     rows = [
-        (asset_slug, weight, (weight * weight) / concentration_total)
-        for asset_slug, weight in sorted(weights.items(), key=lambda item: (-item[1], item[0]))
+        (asset_slug, blended_weights[asset_slug], risk_proxy_by_asset[asset_slug] / total_risk_proxy)
+        for asset_slug in sorted(blended_weights, key=lambda slug: (-blended_weights[slug], slug))
     ]
     return rows
+
+
+def _candidate_rank(candidate: EnsembleCandidate) -> float:
+    return (
+        (10.0 if candidate.ips_compliance_statement == "COMPLIANT" else 0.0)
+        + candidate.portfolio_summary["sharpe_ratio"]
+        + (0.05 * candidate.portfolio_summary["effective_n"])
+        - candidate.portfolio_summary["tracking_error_vs_60_40"]
+    )
 
 
 def _collect_key_risks(risk_reports: Sequence[CRORiskReportOutput]) -> tuple[str, ...]:
