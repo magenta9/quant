@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+import math
 from typing import Any, Callable, Literal
 
 from core.assets import get_asset
@@ -111,7 +112,7 @@ class YFinanceDataProvider:
 
             try:
                 history = self._ticker_factory(spec.ticker).history(period="1mo", interval="1d", auto_adjust=False)
-            except Exception as error:  # pragma: no cover - exercised by unit tests via fake provider
+            except Exception as error:
                 results[spec.name] = MacroIndicatorValue(
                     name=spec.name,
                     value=None,
@@ -169,7 +170,13 @@ class YFinanceDataProvider:
                 issues=(issue,),
             )
 
-        points = tuple(self._coerce_history_point(index, row) for index, row in history.iterrows())
+        points: list[HistoricalPricePoint] = []
+        issues: list[DataFetchIssue] = []
+        for index, row in history.iterrows():
+            point, point_issues = self._coerce_history_point(index, row, asset.proxy_ticker)
+            points.append(point)
+            issues.extend(point_issues)
+
         if not points:
             issue = DataFetchIssue(
                 code="missing_history",
@@ -188,7 +195,8 @@ class YFinanceDataProvider:
             asset_slug=asset_slug,
             ticker=asset.proxy_ticker,
             metadata=metadata,
-            points=points,
+            points=tuple(points),
+            issues=tuple(issues),
         )
 
     def get_proxy_ticker_metadata(self, asset_slug: str) -> ProxyTickerMetadata:
@@ -198,6 +206,7 @@ class YFinanceDataProvider:
             info = getattr(ticker, "info", {}) or {}
             if not info:
                 ticker.history(period="5d", interval="1d", auto_adjust=False)
+                info = getattr(ticker, "info", {}) or {}
         except Exception as error:
             issue = DataFetchIssue(code="provider_error", message=str(error), ticker=asset.proxy_ticker)
             return ProxyTickerMetadata(
@@ -230,23 +239,45 @@ class YFinanceDataProvider:
 
     @staticmethod
     def _last_history_point(history: Any) -> HistoricalPricePoint | None:
-        points = [YFinanceDataProvider._coerce_history_point(index, row) for index, row in history.iterrows()]
+        points = [YFinanceDataProvider._coerce_history_point(index, row, None)[0] for index, row in history.iterrows()]
         if not points:
             return None
         return points[-1]
 
     @staticmethod
-    def _coerce_history_point(index: Any, row: Any) -> HistoricalPricePoint:
+    def _coerce_history_point(
+        index: Any,
+        row: Any,
+        ticker: str | None,
+    ) -> tuple[HistoricalPricePoint, tuple[DataFetchIssue, ...]]:
         row_values = row.to_dict() if hasattr(row, "to_dict") else dict(row)
+        field_map = {
+            "Open": YFinanceDataProvider._coerce_float(row_values.get("Open")),
+            "High": YFinanceDataProvider._coerce_float(row_values.get("High")),
+            "Low": YFinanceDataProvider._coerce_float(row_values.get("Low")),
+            "Close": YFinanceDataProvider._coerce_float(row_values.get("Close")),
+            "Adj Close": YFinanceDataProvider._coerce_float(row_values.get("Adj Close")),
+            "Volume": YFinanceDataProvider._coerce_int(row_values.get("Volume")),
+        }
+        timestamp = YFinanceDataProvider._serialize_timestamp(index)
+        issues = tuple(
+            DataFetchIssue(
+                code="missing_history_field",
+                message=f"Missing {field_name} value for ticker {ticker} at {timestamp}.",
+                ticker=ticker,
+            )
+            for field_name, raw_value in row_values.items()
+            if field_name in field_map and raw_value is not None and field_map[field_name] is None
+        )
         return HistoricalPricePoint(
             timestamp=YFinanceDataProvider._serialize_timestamp(index),
-            open=YFinanceDataProvider._coerce_float(row_values.get("Open")),
-            high=YFinanceDataProvider._coerce_float(row_values.get("High")),
-            low=YFinanceDataProvider._coerce_float(row_values.get("Low")),
-            close=YFinanceDataProvider._coerce_float(row_values.get("Close")),
-            adj_close=YFinanceDataProvider._coerce_float(row_values.get("Adj Close")),
-            volume=YFinanceDataProvider._coerce_int(row_values.get("Volume")),
-        )
+            open=field_map["Open"],
+            high=field_map["High"],
+            low=field_map["Low"],
+            close=field_map["Close"],
+            adj_close=field_map["Adj Close"],
+            volume=field_map["Volume"],
+        ), issues
 
     @staticmethod
     def _serialize_timestamp(value: Any) -> str:
@@ -258,15 +289,33 @@ class YFinanceDataProvider:
 
     @staticmethod
     def _coerce_float(value: Any) -> float | None:
-        if value is None:
+        if value is None or YFinanceDataProvider._is_missing_number(value):
             return None
         return float(value)
 
     @staticmethod
     def _coerce_int(value: Any) -> int | None:
-        if value is None:
+        if value is None or YFinanceDataProvider._is_missing_number(value):
             return None
         return int(value)
+
+    @staticmethod
+    def _is_missing_number(value: Any) -> bool:
+        try:
+            import pandas as pd
+        except ModuleNotFoundError:
+            pd = None
+
+        if pd is not None:
+            try:
+                return bool(pd.isna(value))
+            except Exception:
+                pass
+
+        try:
+            return math.isnan(float(value))
+        except (TypeError, ValueError):
+            return False
 
     @staticmethod
     def _metadata_issues(ticker: str, info: dict[str, Any]) -> tuple[DataFetchIssue, ...]:

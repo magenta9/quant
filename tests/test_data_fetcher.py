@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import unittest
 from datetime import UTC, datetime
 
@@ -19,14 +20,24 @@ class _FakeFrame:
 
 
 class _FakeTicker:
-    def __init__(self, *, history_rows=None, info=None, history_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        history_rows=None,
+        info=None,
+        history_error: Exception | None = None,
+        info_after_history=None,
+    ) -> None:
         self._history_rows = history_rows or []
         self.info = info or {}
         self._history_error = history_error
+        self._info_after_history = info_after_history
 
     def history(self, *, period: str, interval: str, auto_adjust: bool = False):
         if self._history_error is not None:
             raise self._history_error
+        if self._info_after_history is not None:
+            self.info = self._info_after_history
         return _FakeFrame(self._history_rows)
 
 
@@ -108,6 +119,16 @@ class YFinanceDataProviderTests(unittest.TestCase):
         self.assertEqual(result["gdp_growth_yoy"].status, "unsupported")
         self.assertIn("No direct Yahoo Finance mapping", result["gdp_growth_yoy"].message)
 
+    def test_get_macro_indicators_reports_vix_history_errors(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(history_error=RuntimeError("vix feed unavailable"))
+        )
+
+        result = provider.get_macro_indicators()
+
+        self.assertEqual(result["vix"].status, "error")
+        self.assertIn("vix feed unavailable", result["vix"].message)
+
     def test_get_proxy_ticker_metadata_reports_provider_errors(self) -> None:
         provider = YFinanceDataProvider(
             ticker_factory=lambda ticker: _FakeTicker(history_error=RuntimeError("upstream unavailable"))
@@ -140,6 +161,63 @@ class YFinanceDataProviderTests(unittest.TestCase):
 
         self.assertEqual(result.points[0].close, 42.0)
         self.assertEqual(result.metadata.issues[0].code, "missing_metadata")
+
+    def test_get_proxy_ticker_metadata_rechecks_info_after_history_fallback(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                info={},
+                info_after_history={},
+            )
+        )
+
+        result = provider.get_proxy_ticker_metadata("reits")
+
+        self.assertEqual(result.issues[0].code, "missing_metadata")
+
+    def test_get_macro_indicators_treats_nan_values_as_missing(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2026, 4, 2, tzinfo=UTC),
+                        {
+                            "Close": math.nan,
+                        },
+                    )
+                ]
+            )
+        )
+
+        result = provider.get_macro_indicators()
+
+        self.assertEqual(result["vix"].status, "missing")
+        self.assertIsNone(result["vix"].value)
+
+    def test_get_asset_history_surfaces_nan_fields_as_explicit_issues(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2026, 4, 2, tzinfo=UTC),
+                        {
+                            "Open": math.nan,
+                            "Close": 42.0,
+                            "Volume": math.nan,
+                        },
+                    )
+                ],
+                info={"shortName": "Invesco DB Commodity Index Tracking Fund"},
+            )
+        )
+
+        result = provider.get_asset_history("commodities", period="1mo", interval="1d")
+
+        self.assertIsNone(result.points[0].open)
+        self.assertIsNone(result.points[0].volume)
+        self.assertEqual(
+            [issue.code for issue in result.issues],
+            ["missing_history_field", "missing_history_field"],
+        )
 
 
 if __name__ == "__main__":
