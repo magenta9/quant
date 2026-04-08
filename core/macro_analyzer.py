@@ -11,7 +11,7 @@ from core.utils import write_json, write_markdown
 
 
 class MacroDataProvider(Protocol):
-    def get_macro_indicators(self) -> dict[str, MacroIndicatorValue]: ...
+    def get_macro_indicators(self, *, as_of: str | None = None) -> dict[str, MacroIndicatorValue]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +40,14 @@ _REGIME_LABELS = {
 }
 
 
-def run_macro_stage(output_dir: str | Path, data_provider: MacroDataProvider | None = None) -> MacroStageResult:
+def run_macro_stage(
+    output_dir: str | Path,
+    data_provider: MacroDataProvider | None = None,
+    *,
+    as_of: str | None = None,
+) -> MacroStageResult:
     provider = data_provider or YFinanceDataProvider()
-    indicators = provider.get_macro_indicators()
+    indicators = provider.get_macro_indicators(as_of=as_of) if as_of is not None else provider.get_macro_indicators()
     timestamp = _latest_timestamp(indicators)
 
     growth = _score_growth(indicators.get("gdp_growth_yoy"))

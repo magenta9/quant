@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "mean_downside_risk"
+  role: "Mean Downside Risk Portfolio Constructor"
+metadata:
+  method_slug: "mean_downside_risk"
+  method_name: "Mean Downside Risk"
+  method_category: "risk_structured"
+  objective: "Penalize downside-risk proxies while preserving positive expected-return exposure."
+  primary_risk_input: "downside_risk_proxy"
+  expected_return_input: "asset_cma_vector"
+  solver_style: "deterministic_scoring"
+  skill_path: "skills/mean_downside_risk/SKILL.md"

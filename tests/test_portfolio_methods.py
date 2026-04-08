@@ -45,7 +45,19 @@ class PortfolioMethodTests(unittest.TestCase):
 
         self.assertEqual(
             tuple(METHOD_REGISTRY),
-            ("equal_weight", "inverse_volatility", "max_sharpe", "global_min_variance", "risk_parity"),
+            (
+                "equal_weight",
+                "inverse_volatility",
+                "max_sharpe",
+                "global_min_variance",
+                "risk_parity",
+                "volatility_targeting",
+                "black_litterman",
+                "robust_mean_variance",
+                "mean_downside_risk",
+                "maximum_diversification",
+                "minimum_correlation",
+            ),
         )
 
         for method in METHOD_REGISTRY:
@@ -105,6 +117,43 @@ class PortfolioMethodTests(unittest.TestCase):
         )
         self.assertAlmostEqual(risk_parity.weights["us_short_treasury"], 0.30, places=8)
         self.assertEqual(risk_parity.metadata["optimizer_status"], "bound_limited")
+
+        volatility_targeting = optimize_portfolio(
+            method="volatility_targeting",
+            covariance_output=covariance,
+            expected_returns=self.expected_returns,
+            generated_at="2026-04-09T12:00:00Z",
+            risk_free_rate=0.02,
+        )
+        self.assertIn("target_volatility", volatility_targeting.metadata)
+        self.assertLess(
+            volatility_targeting.weights["us_large_cap"],
+            max_sharpe.weights["us_large_cap"],
+        )
+
+        black_litterman = optimize_portfolio(
+            method="black_litterman",
+            covariance_output=covariance,
+            expected_returns=self.expected_returns,
+            generated_at="2026-04-09T12:00:00Z",
+            risk_free_rate=0.02,
+        )
+        self.assertIn("posterior_expected_returns", black_litterman.metadata)
+        self.assertAlmostEqual(sum(black_litterman.weights.values()), 1.0, places=8)
+
+        minimum_correlation = optimize_portfolio(
+            method="minimum_correlation",
+            covariance_output=covariance,
+            expected_returns=self.expected_returns,
+            generated_at="2026-04-09T12:00:00Z",
+            risk_free_rate=0.02,
+        )
+        self.assertIn("average_correlation_by_asset", minimum_correlation.metadata)
+        self.assertAlmostEqual(minimum_correlation.weights["us_short_treasury"], 0.30, places=8)
+        self.assertGreater(
+            minimum_correlation.weights["us_short_treasury"],
+            minimum_correlation.weights["us_long_treasury"],
+        )
 
     def test_optimizer_raises_explicit_error_when_method_weights_breach_ips_bounds(self) -> None:
         from core.contracts import CorrelationMatrix, CovarianceOutput
@@ -168,6 +217,12 @@ class PortfolioMethodTests(unittest.TestCase):
             "max_sharpe",
             "global_min_variance",
             "risk_parity",
+            "volatility_targeting",
+            "black_litterman",
+            "robust_mean_variance",
+            "mean_downside_risk",
+            "maximum_diversification",
+            "minimum_correlation",
         ):
             path = Path(f"skills/{method_name}/SKILL.md")
             self.assertTrue(path.exists(), msg=f"missing skill doc for {method_name}")

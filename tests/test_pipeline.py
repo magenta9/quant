@@ -48,8 +48,11 @@ def _build_history(asset_slug: str, monthly_return: float, months: int = 36) -> 
 @dataclass(frozen=True, slots=True)
 class _StubPipelineProvider:
     monthly_returns: dict[str, float]
+    request_log: list[tuple[str, str | None, str | None]] | None = None
 
-    def get_macro_indicators(self) -> dict[str, MacroIndicatorValue]:
+    def get_macro_indicators(self, *, as_of: str | None = None) -> dict[str, MacroIndicatorValue]:
+        if self.request_log is not None:
+            self.request_log.append(("macro", as_of, None))
         return {
             "gdp_growth_yoy": MacroIndicatorValue("gdp_growth_yoy", 2.6, "2026-04-09T12:00:00Z", "GDP", "ok"),
             "cpi_yoy": MacroIndicatorValue("cpi_yoy", 2.4, "2026-04-09T12:00:00Z", "CPI", "ok"),
@@ -58,7 +61,16 @@ class _StubPipelineProvider:
             "credit_spreads": MacroIndicatorValue("credit_spreads", 140.0, "2026-04-09T12:00:00Z", "CREDIT", "ok"),
         }
 
-    def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> AssetHistoryResult:
+    def get_asset_history(
+        self,
+        asset_slug: str,
+        *,
+        period: str = "max",
+        interval: str = "1mo",
+        as_of: str | None = None,
+    ) -> AssetHistoryResult:
+        if self.request_log is not None:
+            self.request_log.append((asset_slug, as_of, interval))
         return _build_history(asset_slug, self.monthly_returns.get(asset_slug, 0.005 + (ASSET_ORDER.index(asset_slug) * 0.0001)))
 
 
@@ -349,6 +361,71 @@ class PipelineTests(unittest.TestCase):
         self.assertIn("IPS Compliance", stored_memo[2])
         self.assertEqual(stored_memo[3], result.board_memo.ips_compliance_statement)
 
+    def test_run_phase2_pipeline_governance_mode_generates_diverse_shortlist_and_persists_vote_fields(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+
+        result = run_phase2_pipeline(
+            ips_path=Path("config/ips.md"),
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="run-phase5-governance",
+            governance_mode=True,
+        )
+
+        self.assertIsNotNone(result.governance)
+        self.assertEqual(len(result.portfolio_proposals), 11)
+        self.assertEqual(len(result.governance.review_assignments), 22)
+        self.assertEqual(len(result.governance.shortlist), 5)
+        self.assertGreaterEqual(len({entry.category for entry in result.governance.shortlist}), 3)
+        self.assertTrue((result.run_directory / "governance" / "vote_tallies.json").exists())
+        self.assertTrue((result.run_directory / "governance" / "peer_reviews.json").exists())
+
+        with sqlite3.connect(self.database_path) as connection:
+            scored_rows = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM portfolio_proposals
+                WHERE review_score IS NOT NULL
+                  AND vote_points IS NOT NULL
+                """
+            ).fetchone()[0]
+            shortlist_rows = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM portfolio_proposals
+                WHERE in_top5 = 1
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(scored_rows, 11)
+        self.assertEqual(shortlist_rows, 5)
+
+    def test_run_phase2_pipeline_replay_mode_forwards_as_of_to_provider(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        request_log: list[tuple[str, str | None, str | None]] = []
+        provider = _StubPipelineProvider(
+            monthly_returns={"cash": 0.0015, "us_large_cap": 0.009},
+            request_log=request_log,
+        )
+
+        run_phase2_pipeline(
+            ips_path=Path("config/ips.md"),
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="run-phase5-replay",
+            replay_as_of="2025-12-31",
+        )
+
+        self.assertIn(("macro", "2025-12-31", None), request_log)
+        asset_requests = [entry for entry in request_log if entry[0] not in {"macro"}]
+        self.assertTrue(asset_requests)
+        self.assertTrue(all(entry[1] == "2025-12-31" for entry in asset_requests))
+
     def test_run_phase2_pipeline_rejects_ips_that_do_not_cover_all_registered_assets(self) -> None:
         from core.pipeline import run_phase2_pipeline
 
@@ -420,6 +497,50 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertTrue((self.workspace / "output" / "board_memos" / "run-phase2-cli.md").exists())
+
+    def test_run_evaluation_mode_persists_guarded_meta_feedback(self) -> None:
+        from core.pipeline import MetaChange, run_evaluation_mode
+
+        result = run_evaluation_mode(
+            database_path=self.database_path,
+            output_path=self.workspace / "output" / "runs" / "meta_feedback.json",
+            period_start="2025-01-01",
+            period_end="2025-12-31",
+            feedback_summary={
+                "regime_accuracy": 0.72,
+                "return_rank_correlation": 0.41,
+                "signal_hit_rate": 0.63,
+                "method_errors": {"max_sharpe": 0.12},
+            },
+            changes_made=(
+                MetaChange(
+                    file="skills/max_sharpe/SKILL.md",
+                    change_type="methodology",
+                    description="Tighten return-estimation notes for stressed regimes.",
+                    rationale="Late-cycle drawdowns were underestimated.",
+                    evidence="Replay analysis showed rank-correlation decay in late-cycle months.",
+                    rollback_plan="Revert the methodology note and restore the prior stress assumption.",
+                ),
+            ),
+        )
+
+        self.assertTrue(result.recommended_review)
+        self.assertTrue((self.workspace / "output" / "runs" / "meta_feedback.json").exists())
+        self.assertEqual(result.changes_made[0].rollback_plan.startswith("Revert"), True)
+
+        with sqlite3.connect(self.database_path) as connection:
+            stored_feedback = connection.execute(
+                """
+                SELECT period_start, period_end, feedback_summary_json, changes_json, recommended_review
+                FROM meta_feedback
+                """
+            ).fetchone()
+
+        self.assertEqual(stored_feedback[0], "2025-01-01")
+        self.assertEqual(stored_feedback[1], "2025-12-31")
+        self.assertEqual(json.loads(stored_feedback[2])["regime_accuracy"], 0.72)
+        self.assertEqual(json.loads(stored_feedback[3])[0]["rollback_plan"].startswith("Revert"), True)
+        self.assertEqual(stored_feedback[4], 1)
 
 
 if __name__ == "__main__":

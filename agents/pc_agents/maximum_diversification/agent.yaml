@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "maximum_diversification"
+  role: "Maximum Diversification Portfolio Constructor"
+metadata:
+  method_slug: "maximum_diversification"
+  method_name: "Maximum Diversification"
+  method_category: "risk_structured"
+  objective: "Maximize a diversification-ratio proxy from the shared covariance estimate under IPS limits."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "closed_form_proxy"
+  skill_path: "skills/maximum_diversification/SKILL.md"

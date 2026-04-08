@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import UTC, datetime
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -8,14 +9,16 @@ from typing import Protocol
 
 from core.assets import ASSET_DEFINITIONS, ASSET_ORDER, get_asset
 from core.cma_builder import AssetAnalysisResult, run_asset_analysis
-from core.contracts import CIOBoardMemoOutput, CROIPSDiagnostic, CRORiskReportOutput
+from core.contracts import CIOBoardMemoOutput, CROIPSDiagnostic, CRORiskReportOutput, SerializableContract
 from core.covariance import _build_aligned_returns_matrix, estimate_covariance
 from core.data_fetcher import AssetHistoryResult, YFinanceDataProvider
 from core.database import (
     initialize_database,
     persist_board_memo,
     persist_cma_methods,
+    persist_governance_scores,
     persist_macro_view,
+    persist_meta_feedback,
     persist_portfolio_stage,
 )
 from core.ensemble import run_cio_stage
@@ -23,6 +26,7 @@ from core.macro_analyzer import MacroStageResult, run_macro_stage
 from core.portfolio_optimizer import METHOD_REGISTRY, optimize_portfolio
 from core.risk_metrics import build_risk_report
 from core.utils import ensure_directory, generate_run_id, write_json, write_markdown
+from core.voting import PeerReview, ReviewAssignment, VoteTally, generate_review_assignments, run_peer_review, select_shortlist, tally_peer_reviews
 
 MVP_PORTFOLIO_METHODS = (
     "equal_weight",
@@ -30,6 +34,19 @@ MVP_PORTFOLIO_METHODS = (
     "max_sharpe",
     "global_min_variance",
     "risk_parity",
+)
+GOVERNANCE_PORTFOLIO_METHODS = (
+    "equal_weight",
+    "inverse_volatility",
+    "max_sharpe",
+    "global_min_variance",
+    "risk_parity",
+    "volatility_targeting",
+    "black_litterman",
+    "robust_mean_variance",
+    "mean_downside_risk",
+    "maximum_diversification",
+    "minimum_correlation",
 )
 TREASURY_DURATION_BY_SLUG = {
     "us_short_treasury": 2.0,
@@ -50,9 +67,42 @@ DOLLAR_EXPOSURE_BY_CATEGORY = {
 
 
 class Phase2DataProvider(Protocol):
-    def get_macro_indicators(self) -> object: ...
+    def get_macro_indicators(self, *, as_of: str | None = None) -> object: ...
 
-    def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> object: ...
+    def get_asset_history(
+        self,
+        asset_slug: str,
+        *,
+        period: str = "max",
+        interval: str = "1mo",
+        as_of: str | None = None,
+    ) -> object: ...
+
+
+@dataclass(frozen=True, slots=True)
+class GovernanceResult(SerializableContract):
+    review_assignments: tuple[ReviewAssignment, ...]
+    peer_reviews: tuple[PeerReview, ...]
+    vote_tallies: tuple[VoteTally, ...]
+    shortlist: tuple[VoteTally, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetaChange(SerializableContract):
+    file: str
+    change_type: str
+    description: str
+    rationale: str
+    evidence: str
+    rollback_plan: str
+
+
+@dataclass(frozen=True, slots=True)
+class MetaEvaluationResult(SerializableContract):
+    period_analyzed: dict[str, str]
+    feedback_summary: dict[str, object]
+    changes_made: tuple[MetaChange, ...]
+    recommended_review: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +118,8 @@ class Phase2PipelineResult:
     risk_reports: tuple[object, ...]
     board_memo: CIOBoardMemoOutput
     database_path: Path
+    governance: GovernanceResult | None = None
+    replay_as_of: str | None = None
 
 
 def run_phase2_pipeline(
@@ -77,6 +129,8 @@ def run_phase2_pipeline(
     database_path: str | Path = "database/portfolio.db",
     data_provider: Phase2DataProvider | None = None,
     run_id: str | None = None,
+    governance_mode: bool = False,
+    replay_as_of: str | None = None,
 ) -> Phase2PipelineResult:
     ips_assets = parse_ips_assets(ips_path)
     if ips_assets != ASSET_ORDER:
@@ -96,7 +150,7 @@ def run_phase2_pipeline(
     cio_directory = ensure_directory(run_directory / "cio")
     board_memos_directory = ensure_directory(Path(output_root).parent / "board_memos")
 
-    macro_result = run_macro_stage(output_dir=macro_directory, data_provider=provider)
+    macro_result = run_macro_stage(output_dir=macro_directory, data_provider=provider, as_of=replay_as_of)
     persist_macro_view(resolved_database_path, macro_result.macro_view)
 
     asset_results: list[AssetAnalysisResult] = []
@@ -106,6 +160,7 @@ def run_phase2_pipeline(
             macro_view=macro_result.macro_view,
             output_dir=assets_directory / asset_slug,
             data_provider=provider,
+            as_of=replay_as_of,
         )
         persist_cma_methods(
             resolved_database_path,
@@ -115,7 +170,14 @@ def run_phase2_pipeline(
         )
         asset_results.append(result)
 
-    histories = {asset_slug: provider.get_asset_history(asset_slug, interval="1mo") for asset_slug in ips_assets}
+    histories = {
+        asset_slug: (
+            provider.get_asset_history(asset_slug, interval="1mo", as_of=replay_as_of)
+            if replay_as_of is not None
+            else provider.get_asset_history(asset_slug, interval="1mo")
+        )
+        for asset_slug in ips_assets
+    }
     covariance_output = estimate_covariance(
         histories=histories,
         asset_slugs=ips_assets,
@@ -141,9 +203,10 @@ def run_phase2_pipeline(
 
     portfolio_proposals = []
     risk_reports = []
-    for method in MVP_PORTFOLIO_METHODS:
+    active_methods = GOVERNANCE_PORTFOLIO_METHODS if governance_mode else MVP_PORTFOLIO_METHODS
+    for method in active_methods:
         if method not in METHOD_REGISTRY:
-            raise ValueError(f"MVP portfolio method '{method}' is not registered")
+            raise ValueError(f"Configured portfolio method '{method}' is not registered")
         proposal = optimize_portfolio(
             method=method,
             covariance_output=covariance_output,
@@ -181,7 +244,40 @@ def run_phase2_pipeline(
     for risk_report in risk_reports:
         write_json(risk_directory / risk_report.method / "risk_report.json", risk_report.to_dict())
 
-    board_memo = run_cio_stage(proposals=portfolio_proposals, risk_reports=risk_reports)
+    governance: GovernanceResult | None = None
+    board_candidates = portfolio_proposals
+    board_risk_reports = risk_reports
+    if governance_mode:
+        governance_directory = ensure_directory(run_directory / "governance")
+        governance = run_governance_stage(proposals=portfolio_proposals, risk_reports=risk_reports)
+        write_json(
+            governance_directory / "review_assignments.json",
+            {"assignments": [assignment.to_dict() for assignment in governance.review_assignments]},
+        )
+        write_json(
+            governance_directory / "peer_reviews.json",
+            {"reviews": [review.to_dict() for review in governance.peer_reviews]},
+        )
+        write_json(
+            governance_directory / "vote_tallies.json",
+            {"tallies": [tally.to_dict() for tally in governance.vote_tallies]},
+        )
+        write_json(
+            governance_directory / "shortlist.json",
+            {"shortlist": [entry.to_dict() for entry in governance.shortlist]},
+        )
+        shortlist_methods = tuple(entry.method for entry in governance.shortlist)
+        persist_governance_scores(
+            resolved_database_path,
+            timestamp=macro_result.macro_view.timestamp,
+            tallies=governance.vote_tallies,
+            shortlist_methods=shortlist_methods,
+        )
+        shortlist_set = set(shortlist_methods)
+        board_candidates = tuple(proposal for proposal in portfolio_proposals if proposal.method in shortlist_set)
+        board_risk_reports = tuple(report for report in risk_reports if report.method in shortlist_set)
+
+    board_memo = run_cio_stage(proposals=board_candidates, risk_reports=board_risk_reports)
     write_json(cio_directory / "board_memo.json", board_memo.to_dict())
     memo_content = render_board_memo_markdown(
         run_id=active_run_id,
@@ -209,6 +305,8 @@ def run_phase2_pipeline(
         risk_reports=risk_reports,
         board_memo=board_memo,
         database_path=resolved_database_path,
+        governance=governance,
+        replay_as_of=replay_as_of,
     )
 
 
@@ -343,6 +441,104 @@ def render_board_memo_markdown(
     )
 
 
+def run_governance_stage(
+    *,
+    proposals: tuple[object, ...],
+    risk_reports: tuple[object, ...],
+    seed: int = 0,
+) -> GovernanceResult:
+    categories = {proposal.method: proposal.category for proposal in proposals}
+    methods = tuple(proposal.method for proposal in proposals)
+    assignments = generate_review_assignments(
+        methods=methods,
+        categories=categories,
+        reviews_per_reviewer=2,
+        seed=seed,
+    )
+    proposals_by_method = {proposal.method: proposal for proposal in proposals}
+    risk_reports_by_method = {risk_report.method: risk_report for risk_report in risk_reports}
+
+    peer_reviews: list[PeerReview] = []
+    for reviewer in sorted(methods):
+        vote_points = _borda_points_for_reviewer(
+            reviewer=reviewer,
+            proposals_by_method=proposals_by_method,
+            risk_reports_by_method=risk_reports_by_method,
+        )
+        reviewer_assignments = [assignment for assignment in assignments if assignment.reviewer == reviewer]
+        for assignment in reviewer_assignments:
+            peer_reviews.append(
+                run_peer_review(
+                    reviewer=reviewer,
+                    reviewed_method=assignment.reviewed_method,
+                    proposal=proposals_by_method[assignment.reviewed_method],
+                    risk_report=risk_reports_by_method[assignment.reviewed_method],
+                    vote_points=vote_points.get(assignment.reviewed_method, 0),
+                )
+            )
+
+    tallies_by_method = tally_peer_reviews(reviews=tuple(peer_reviews), categories=categories)
+    for method, category in categories.items():
+        tallies_by_method.setdefault(
+            method,
+            VoteTally(
+                method=method,
+                category=category,
+                total_vote_points=0,
+                average_total_score=0.0,
+                review_count=0,
+            ),
+        )
+    vote_tallies = tuple(
+        sorted(
+            tallies_by_method.values(),
+            key=lambda tally: (-tally.total_vote_points, -tally.average_total_score, tally.method),
+        )
+    )
+    shortlist = select_shortlist(tallies=tallies_by_method, top_n=min(5, len(vote_tallies)), min_categories=3)
+    return GovernanceResult(
+        review_assignments=assignments,
+        peer_reviews=tuple(peer_reviews),
+        vote_tallies=vote_tallies,
+        shortlist=shortlist,
+    )
+
+
+def run_evaluation_mode(
+    *,
+    database_path: str | Path,
+    output_path: str | Path,
+    period_start: str,
+    period_end: str,
+    feedback_summary: dict[str, object],
+    changes_made: tuple[MetaChange, ...],
+) -> MetaEvaluationResult:
+    if any(not change.evidence for change in changes_made):
+        raise ValueError("Meta changes require evidence before review")
+    if any(not change.rollback_plan for change in changes_made):
+        raise ValueError("Meta changes require a rollback_plan before review")
+
+    initialize_database(database_path)
+    timestamp = datetime.now(UTC).isoformat()
+    result = MetaEvaluationResult(
+        period_analyzed={"start": period_start, "end": period_end},
+        feedback_summary=feedback_summary,
+        changes_made=changes_made,
+        recommended_review=bool(changes_made),
+    )
+    persist_meta_feedback(
+        database_path,
+        timestamp=timestamp,
+        period_start=period_start,
+        period_end=period_end,
+        feedback_summary=feedback_summary,
+        changes=changes_made,
+        recommended_review=result.recommended_review,
+    )
+    write_json(output_path, result.to_dict())
+    return result
+
+
 def build_argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run the self-driving portfolio pipeline end to end.")
     parser.add_argument("--ips-path", default="config/ips.md")
@@ -375,20 +571,65 @@ def _normalize_rate(raw_rate: float | None) -> float:
 @dataclass(slots=True)
 class _CachingPipelineProvider:
     inner: Phase2DataProvider
-    _history_cache: dict[tuple[str, str, str], AssetHistoryResult] = field(init=False, default_factory=dict)
+    _history_cache: dict[tuple[str, str, str, str | None], AssetHistoryResult] = field(init=False, default_factory=dict)
 
-    def get_macro_indicators(self) -> object:
-        return self.inner.get_macro_indicators()
+    def get_macro_indicators(self, *, as_of: str | None = None) -> object:
+        if as_of is None:
+            return self.inner.get_macro_indicators()
+        return self.inner.get_macro_indicators(as_of=as_of)
 
-    def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> AssetHistoryResult:
-        cache_key = (asset_slug, period, interval)
+    def get_asset_history(
+        self,
+        asset_slug: str,
+        *,
+        period: str = "max",
+        interval: str = "1mo",
+        as_of: str | None = None,
+    ) -> AssetHistoryResult:
+        cache_key = (asset_slug, period, interval, as_of)
         if cache_key not in self._history_cache:
-            self._history_cache[cache_key] = self.inner.get_asset_history(
-                asset_slug,
-                period=period,
-                interval=interval,
-            )
+            if as_of is None:
+                self._history_cache[cache_key] = self.inner.get_asset_history(
+                    asset_slug,
+                    period=period,
+                    interval=interval,
+                )
+            else:
+                self._history_cache[cache_key] = self.inner.get_asset_history(
+                    asset_slug,
+                    period=period,
+                    interval=interval,
+                    as_of=as_of,
+                )
         return self._history_cache[cache_key]
+
+
+def _borda_points_for_reviewer(
+    *,
+    reviewer: str,
+    proposals_by_method: dict[str, object],
+    risk_reports_by_method: dict[str, object],
+) -> dict[str, int]:
+    ranked = sorted(
+        (
+            run_peer_review(
+                reviewer=reviewer,
+                reviewed_method=method,
+                proposal=proposal,
+                risk_report=risk_reports_by_method[method],
+                vote_points=0,
+            )
+            for method, proposal in proposals_by_method.items()
+            if method != reviewer
+        ),
+        key=lambda review: (-review.total_score, review.reviewed_method),
+    )
+    points: dict[str, int] = {}
+    for index, review in enumerate(ranked[:5]):
+        points[review.reviewed_method] = 5 - index
+    if ranked:
+        points[ranked[-1].reviewed_method] = -2
+    return points
 
 
 if __name__ == "__main__":

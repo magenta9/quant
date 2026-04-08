@@ -48,7 +48,14 @@ STUB_METHODS = {
 
 
 class AssetDataProvider(Protocol):
-    def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> AssetHistoryResult: ...
+    def get_asset_history(
+        self,
+        asset_slug: str,
+        *,
+        period: str = "max",
+        interval: str = "1mo",
+        as_of: str | None = None,
+    ) -> AssetHistoryResult: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,10 +76,15 @@ def run_asset_analysis(
     macro_view: MacroView,
     output_dir: str | Path,
     data_provider: AssetDataProvider | None = None,
+    as_of: str | None = None,
 ) -> AssetAnalysisResult:
     provider = data_provider or YFinanceDataProvider()
     asset = get_asset(asset_slug)
-    history = provider.get_asset_history(asset_slug, interval="1mo")
+    history = (
+        provider.get_asset_history(asset_slug, interval="1mo", as_of=as_of)
+        if as_of is not None
+        else provider.get_asset_history(asset_slug, interval="1mo")
+    )
     monthly_returns = _monthly_returns(history)
     risk_free_rate = _normalize_rate(macro_view.key_indicators.fed_funds_rate)
 

@@ -97,7 +97,7 @@ class YFinanceDataProvider:
     def __init__(self, ticker_factory: TickerFactory | None = None) -> None:
         self._ticker_factory = ticker_factory or self._default_ticker_factory
 
-    def get_macro_indicators(self) -> dict[str, MacroIndicatorValue]:
+    def get_macro_indicators(self, *, as_of: str | None = None) -> dict[str, MacroIndicatorValue]:
         results: dict[str, MacroIndicatorValue] = {}
         for spec in self._MACRO_INDICATORS:
             if spec.ticker is None:
@@ -146,7 +146,14 @@ class YFinanceDataProvider:
 
         return results
 
-    def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> AssetHistoryResult:
+    def get_asset_history(
+        self,
+        asset_slug: str,
+        *,
+        period: str = "max",
+        interval: str = "1mo",
+        as_of: str | None = None,
+    ) -> AssetHistoryResult:
         asset = get_asset(asset_slug)
         ticker = self._ticker_factory(asset.proxy_ticker)
         metadata = self._build_proxy_ticker_metadata(asset_slug, ticker)
@@ -167,6 +174,8 @@ class YFinanceDataProvider:
         issues: list[DataFetchIssue] = []
         for index, row in history.iterrows():
             point, point_issues = self._coerce_history_point(index, row, asset.proxy_ticker)
+            if as_of is not None and point.timestamp > as_of:
+                continue
             points.append(point)
             issues.extend(point_issues)
 

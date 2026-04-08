@@ -78,6 +78,54 @@ class PortfolioReportingAgentConfigTests(unittest.TestCase):
                 "expected_return_input": "optional_for_reporting",
                 "solver_style": "iterative_optimization",
             },
+            "volatility_targeting": {
+                "method_name": "Volatility Targeting",
+                "method_category": "risk_structured",
+                "objective": "Blend toward a defensive target volatility when the unconstrained return-seeking portfolio becomes too risky.",
+                "primary_risk_input": "full_covariance_matrix",
+                "expected_return_input": "asset_cma_vector",
+                "solver_style": "deterministic_blend",
+            },
+            "black_litterman": {
+                "method_name": "Black-Litterman",
+                "method_category": "return_optimized",
+                "objective": "Blend equilibrium and CMA views into a posterior return estimate before constrained optimization.",
+                "primary_risk_input": "full_covariance_matrix",
+                "expected_return_input": "posterior_return_vector",
+                "solver_style": "deterministic_posterior_optimization",
+            },
+            "robust_mean_variance": {
+                "method_name": "Robust Mean-Variance",
+                "method_category": "return_optimized",
+                "objective": "Reduce estimation sensitivity by shrinking returns and adding a covariance ridge before optimization.",
+                "primary_risk_input": "full_covariance_matrix",
+                "expected_return_input": "shrunk_asset_cma_vector",
+                "solver_style": "regularized_optimization",
+            },
+            "mean_downside_risk": {
+                "method_name": "Mean Downside Risk",
+                "method_category": "risk_structured",
+                "objective": "Penalize downside-risk proxies while preserving positive expected-return exposure.",
+                "primary_risk_input": "downside_risk_proxy",
+                "expected_return_input": "asset_cma_vector",
+                "solver_style": "deterministic_scoring",
+            },
+            "maximum_diversification": {
+                "method_name": "Maximum Diversification",
+                "method_category": "risk_structured",
+                "objective": "Maximize a diversification-ratio proxy from the shared covariance estimate under IPS limits.",
+                "primary_risk_input": "full_covariance_matrix",
+                "expected_return_input": "optional_for_reporting",
+                "solver_style": "closed_form_proxy",
+            },
+            "minimum_correlation": {
+                "method_name": "Minimum Correlation",
+                "method_category": "risk_structured",
+                "objective": "Favor sleeves with lower average pairwise correlation while remaining long-only and fully invested.",
+                "primary_risk_input": "derived_correlation_matrix",
+                "expected_return_input": "optional_for_reporting",
+                "solver_style": "deterministic_scoring",
+            },
         }
 
         for slug, expected in expected_methods.items():
@@ -152,6 +200,46 @@ class PortfolioReportingAgentConfigTests(unittest.TestCase):
         self.assertIn("recommendation rationale", prompt_text.lower())
         self.assertIn("deterministic", prompt_text.lower())
         self.assertIn("do not imply approvals", prompt_text.lower())
+
+    def test_pc_review_agent_wrapper_documents_review_contract(self) -> None:
+        agent_yaml = Path("agents/pc_review/agent.yaml")
+        prompts_md = Path("agents/pc_review/prompts.md")
+
+        self.assertTrue(agent_yaml.exists())
+        self.assertTrue(prompts_md.exists())
+
+        agent_text = agent_yaml.read_text(encoding="utf-8")
+        agent_payload = yaml.safe_load(agent_text)
+        prompt_text = prompts_md.read_text(encoding="utf-8").lower()
+
+        self.assertIn("kind: pc-review-agent", agent_text)
+        self.assertIn("module: core.voting", agent_text)
+        self.assertIn("callable: run_peer_review", agent_text)
+        self.assertEqual(agent_payload["contract"]["json_contract"], "core.voting.PeerReview")
+        self.assertIn("same-category", prompt_text)
+        self.assertIn("cross-category", prompt_text)
+        self.assertIn("borda", prompt_text)
+        self.assertIn("vote rationale", prompt_text)
+
+    def test_meta_agent_wrapper_documents_guardrails(self) -> None:
+        agent_yaml = Path("agents/meta_agent/agent.yaml")
+        prompts_md = Path("agents/meta_agent/prompts.md")
+
+        self.assertTrue(agent_yaml.exists())
+        self.assertTrue(prompts_md.exists())
+
+        agent_text = agent_yaml.read_text(encoding="utf-8")
+        agent_payload = yaml.safe_load(agent_text)
+        prompt_text = prompts_md.read_text(encoding="utf-8").lower()
+
+        self.assertIn("kind: meta-agent", agent_text)
+        self.assertIn("module: core.pipeline", agent_text)
+        self.assertIn("callable: run_evaluation_mode", agent_text)
+        self.assertEqual(agent_payload["contract"]["json_contract"], "core.pipeline.MetaEvaluationResult")
+        self.assertIn("evidence", prompt_text)
+        self.assertIn("rollback", prompt_text)
+        self.assertIn("human review", prompt_text)
+        self.assertIn("bounded", prompt_text)
 
 
 if __name__ == "__main__":

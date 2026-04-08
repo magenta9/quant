@@ -305,6 +305,70 @@ def persist_board_memo(
         connection.commit()
 
 
+def persist_governance_scores(
+    database_path: str | Path,
+    *,
+    timestamp: str,
+    tallies: tuple[object, ...],
+    shortlist_methods: tuple[str, ...],
+) -> None:
+    shortlist_set = set(shortlist_methods)
+    rows = [
+        (
+            tally.average_total_score,
+            tally.total_vote_points,
+            tally.method in shortlist_set,
+            timestamp,
+            tally.method,
+        )
+        for tally in tallies
+    ]
+    with sqlite3.connect(database_path) as connection:
+        connection.executemany(
+            """
+            UPDATE portfolio_proposals
+            SET review_score = ?, vote_points = ?, in_top5 = ?
+            WHERE timestamp = ? AND method = ?
+            """,
+            rows,
+        )
+        connection.commit()
+
+
+def persist_meta_feedback(
+    database_path: str | Path,
+    *,
+    timestamp: str,
+    period_start: str,
+    period_end: str,
+    feedback_summary: dict[str, object],
+    changes: tuple[object, ...],
+    recommended_review: bool,
+) -> None:
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO meta_feedback (
+                timestamp,
+                period_start,
+                period_end,
+                feedback_summary_json,
+                changes_json,
+                recommended_review
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                period_start,
+                period_end,
+                json.dumps(feedback_summary, sort_keys=True),
+                json.dumps([change.to_dict() for change in changes], sort_keys=True),
+                recommended_review,
+            ),
+        )
+        connection.commit()
+
+
 def persist_portfolio_stage(
     database_path: str | Path,
     *,
