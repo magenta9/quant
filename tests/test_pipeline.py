@@ -322,6 +322,37 @@ class PipelineTests(unittest.TestCase):
                 run_id="run-bad-ips",
             )
 
+    def test_build_factor_exposures_uses_slug_specific_duration_and_dollar_heuristics(self) -> None:
+        from core.pipeline import build_factor_exposures
+
+        exposures = build_factor_exposures(
+            (
+                "us_short_treasury",
+                "us_interm_treasury",
+                "us_long_treasury",
+                "intl_developed",
+                "emg_markets",
+                "us_large_cap",
+                "gold",
+            )
+        )
+
+        self.assertLess(exposures["us_short_treasury"]["duration"], exposures["us_interm_treasury"]["duration"])
+        self.assertLess(exposures["us_interm_treasury"]["duration"], exposures["us_long_treasury"]["duration"])
+        self.assertEqual(exposures["us_large_cap"]["dollar_exposure"], 1.0)
+        self.assertLess(exposures["intl_developed"]["dollar_exposure"], exposures["us_large_cap"]["dollar_exposure"])
+        self.assertLess(exposures["emg_markets"]["dollar_exposure"], exposures["intl_developed"]["dollar_exposure"])
+        self.assertEqual(exposures["gold"]["dollar_exposure"], -0.2)
+
+    def test_normalize_rate_matches_cma_builder_flooring_behavior(self) -> None:
+        from core.pipeline import _normalize_rate
+
+        self.assertEqual(_normalize_rate(None), 0.0)
+        self.assertEqual(_normalize_rate(-0.02), 0.0)
+        self.assertEqual(_normalize_rate(-2.0), 0.0)
+        self.assertEqual(_normalize_rate(0.03), 0.03)
+        self.assertEqual(_normalize_rate(3.5), 0.035)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -28,6 +28,22 @@ MVP_PORTFOLIO_METHODS = (
     "global_min_variance",
     "risk_parity",
 )
+TREASURY_DURATION_BY_SLUG = {
+    "us_short_treasury": 2.0,
+    "us_interm_treasury": 6.0,
+    "us_long_treasury": 12.0,
+}
+DOLLAR_EXPOSURE_BY_CATEGORY = {
+    "us_equity": 1.0,
+    "treasury": 1.0,
+    "credit": 1.0,
+    "cash": 1.0,
+    "international_equity": 0.5,
+    "emerging_equity": 0.25,
+    "international_fixed_income": 0.35,
+    "emerging_fixed_income": 0.2,
+    "real_assets": 0.3,
+}
 
 
 class Phase2DataProvider(Protocol):
@@ -217,11 +233,15 @@ def build_factor_exposures(asset_slugs: tuple[str, ...]) -> dict[str, dict[str, 
     exposures: dict[str, dict[str, float]] = {}
     for asset_slug in asset_slugs:
         asset = get_asset(asset_slug)
+        duration = TREASURY_DURATION_BY_SLUG.get(asset_slug)
+        if duration is None:
+            duration = 5.0 if "fixed_income" in asset.category or asset.category == "credit" else 0.0
+        dollar_exposure = -0.2 if asset_slug == "gold" else DOLLAR_EXPOSURE_BY_CATEGORY.get(asset.category, 1.0)
         exposures[asset_slug] = {
             "equity_beta": 1.0 if asset.group == "equity" else 0.35 if asset.group == "real_assets" else 0.0,
-            "duration": 8.0 if asset.category == "treasury" else 5.0 if "fixed_income" in asset.category or asset.category == "credit" else 0.0,
+            "duration": duration,
             "credit_spread": 1.0 if asset.category in {"credit", "international_fixed_income", "emerging_fixed_income"} else 0.0,
-            "dollar_exposure": 1.0 if asset_slug != "gold" else -0.2,
+            "dollar_exposure": dollar_exposure,
         }
     return exposures
 
@@ -252,7 +272,8 @@ def annotate_projection_warnings(risk_report: CRORiskReportOutput, *, proposal: 
 def _normalize_rate(raw_rate: float | None) -> float:
     if raw_rate is None:
         return 0.0
-    return raw_rate / 100.0 if raw_rate > 1.0 else raw_rate
+    normalized = raw_rate / 100.0 if raw_rate > 1.0 else raw_rate
+    return max(normalized, 0.0)
 
 
 @dataclass(slots=True)
