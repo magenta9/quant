@@ -69,6 +69,7 @@ class _MacroIndicatorSpec:
 
 
 class YFinanceDataProvider:
+    _HISTORY_FIELDS: tuple[str, ...] = ("Open", "High", "Low", "Close", "Adj Close", "Volume")
     _MACRO_INDICATORS: tuple[_MacroIndicatorSpec, ...] = (
         _MacroIndicatorSpec(
             name="gdp_growth_yoy",
@@ -147,19 +148,11 @@ class YFinanceDataProvider:
 
     def get_asset_history(self, asset_slug: str, *, period: str = "max", interval: str = "1mo") -> AssetHistoryResult:
         asset = get_asset(asset_slug)
-        metadata = self.get_proxy_ticker_metadata(asset_slug)
-
-        if any(issue.code == "provider_error" for issue in metadata.issues):
-            return AssetHistoryResult(
-                asset_slug=asset_slug,
-                ticker=asset.proxy_ticker,
-                metadata=metadata,
-                points=(),
-                issues=tuple(issue for issue in metadata.issues if issue.code == "provider_error"),
-            )
+        ticker = self._ticker_factory(asset.proxy_ticker)
+        metadata = self._build_proxy_ticker_metadata(asset_slug, ticker)
 
         try:
-            history = self._ticker_factory(asset.proxy_ticker).history(period=period, interval=interval, auto_adjust=False)
+            history = ticker.history(period=period, interval=interval, auto_adjust=False)
         except Exception as error:
             issue = DataFetchIssue(code="provider_error", message=str(error), ticker=asset.proxy_ticker)
             return AssetHistoryResult(
@@ -200,34 +193,8 @@ class YFinanceDataProvider:
         )
 
     def get_proxy_ticker_metadata(self, asset_slug: str) -> ProxyTickerMetadata:
-        asset = get_asset(asset_slug)
-        try:
-            ticker = self._ticker_factory(asset.proxy_ticker)
-            info = getattr(ticker, "info", {}) or {}
-            if not info:
-                ticker.history(period="5d", interval="1d", auto_adjust=False)
-                info = getattr(ticker, "info", {}) or {}
-        except Exception as error:
-            issue = DataFetchIssue(code="provider_error", message=str(error), ticker=asset.proxy_ticker)
-            return ProxyTickerMetadata(
-                asset_slug=asset_slug,
-                ticker=asset.proxy_ticker,
-                short_name=None,
-                currency=None,
-                exchange=None,
-                quote_type=None,
-                issues=(issue,),
-            )
-
-        return ProxyTickerMetadata(
-            asset_slug=asset_slug,
-            ticker=asset.proxy_ticker,
-            short_name=info.get("shortName"),
-            currency=info.get("currency"),
-            exchange=info.get("exchange"),
-            quote_type=info.get("quoteType"),
-            issues=self._metadata_issues(asset.proxy_ticker, info),
-        )
+        ticker = self._ticker_factory(get_asset(asset_slug).proxy_ticker)
+        return self._build_proxy_ticker_metadata(asset_slug, ticker)
 
     @staticmethod
     def _default_ticker_factory(ticker: str) -> Any:
@@ -266,8 +233,8 @@ class YFinanceDataProvider:
                 message=f"Missing {field_name} value for ticker {ticker} at {timestamp}.",
                 ticker=ticker,
             )
-            for field_name, raw_value in row_values.items()
-            if field_name in field_map and raw_value is not None and field_map[field_name] is None
+            for field_name in YFinanceDataProvider._HISTORY_FIELDS
+            if field_map[field_name] is None
         )
         return HistoricalPricePoint(
             timestamp=YFinanceDataProvider._serialize_timestamp(index),
@@ -333,4 +300,32 @@ class YFinanceDataProvider:
                 message=f"No proxy metadata fields were returned for ticker {ticker}.",
                 ticker=ticker,
             ),
+        )
+
+    def _build_proxy_ticker_metadata(self, asset_slug: str, ticker: Any) -> ProxyTickerMetadata:
+        asset = get_asset(asset_slug)
+        try:
+            info = getattr(ticker, "info", {}) or {}
+            metadata_issues: tuple[DataFetchIssue, ...] = ()
+            if not info:
+                try:
+                    ticker.history(period="5d", interval="1d", auto_adjust=False)
+                except Exception as error:
+                    metadata_issues = (
+                        DataFetchIssue(code="provider_error", message=str(error), ticker=asset.proxy_ticker),
+                    )
+                info = getattr(ticker, "info", {}) or {}
+            metadata_issues = metadata_issues + self._metadata_issues(asset.proxy_ticker, info)
+        except Exception as error:
+            metadata_issues = (DataFetchIssue(code="provider_error", message=str(error), ticker=asset.proxy_ticker),)
+            info = {}
+
+        return ProxyTickerMetadata(
+            asset_slug=asset_slug,
+            ticker=asset.proxy_ticker,
+            short_name=info.get("shortName"),
+            currency=info.get("currency"),
+            exchange=info.get("exchange"),
+            quote_type=info.get("quoteType"),
+            issues=metadata_issues,
         )

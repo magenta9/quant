@@ -26,14 +26,20 @@ class _FakeTicker:
         history_rows=None,
         info=None,
         history_error: Exception | None = None,
+        history_errors: list[Exception | None] | None = None,
         info_after_history=None,
     ) -> None:
         self._history_rows = history_rows or []
         self.info = info or {}
         self._history_error = history_error
+        self._history_errors = list(history_errors or [])
         self._info_after_history = info_after_history
 
     def history(self, *, period: str, interval: str, auto_adjust: bool = False):
+        if self._history_errors:
+            next_error = self._history_errors.pop(0)
+            if next_error is not None:
+                raise next_error
         if self._history_error is not None:
             raise self._history_error
         if self._info_after_history is not None:
@@ -216,7 +222,13 @@ class YFinanceDataProviderTests(unittest.TestCase):
         self.assertIsNone(result.points[0].volume)
         self.assertEqual(
             [issue.code for issue in result.issues],
-            ["missing_history_field", "missing_history_field"],
+            [
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+            ],
         )
 
     def test_get_asset_history_treats_invalid_numeric_values_as_missing(self) -> None:
@@ -242,7 +254,75 @@ class YFinanceDataProviderTests(unittest.TestCase):
         self.assertIsNone(result.points[0].volume)
         self.assertEqual(
             [issue.code for issue in result.issues],
-            ["missing_history_field", "missing_history_field"],
+            [
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+            ],
+        )
+
+    def test_get_asset_history_still_fetches_prices_when_metadata_probe_errors(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2026, 4, 2, tzinfo=UTC),
+                        {
+                            "Close": 42.0,
+                            "Volume": 500,
+                        },
+                    )
+                ],
+                info={},
+                history_errors=[RuntimeError("metadata probe failed"), None],
+            )
+        )
+
+        result = provider.get_asset_history("commodities", period="1mo", interval="1d")
+
+        self.assertEqual(result.points[0].close, 42.0)
+        self.assertEqual(result.metadata.issues[0].code, "provider_error")
+        self.assertEqual(
+            [issue.code for issue in result.issues],
+            [
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+            ],
+        )
+
+    def test_get_asset_history_reports_missing_fields_when_source_fields_are_absent_or_none(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2026, 4, 2, tzinfo=UTC),
+                        {
+                            "Close": 42.0,
+                            "Adj Close": None,
+                        },
+                    )
+                ],
+                info={"shortName": "Invesco DB Commodity Index Tracking Fund"},
+            )
+        )
+
+        result = provider.get_asset_history("commodities", period="1mo", interval="1d")
+
+        self.assertIsNone(result.points[0].open)
+        self.assertIsNone(result.points[0].adj_close)
+        self.assertEqual(
+            [issue.code for issue in result.issues],
+            [
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+                "missing_history_field",
+            ],
         )
 
 
