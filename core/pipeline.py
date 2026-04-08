@@ -236,6 +236,7 @@ def run_phase2_pipeline(
     risk_reports = tuple(risk_reports)
     persist_portfolio_stage(
         resolved_database_path,
+        run_id=active_run_id,
         proposals=portfolio_proposals,
         risk_reports=tuple((macro_result.macro_view.timestamp, risk_report) for risk_report in risk_reports),
     )
@@ -269,6 +270,7 @@ def run_phase2_pipeline(
         shortlist_methods = tuple(entry.method for entry in governance.shortlist)
         persist_governance_scores(
             resolved_database_path,
+            run_id=active_run_id,
             timestamp=macro_result.macro_view.timestamp,
             tallies=governance.vote_tallies,
             shortlist_methods=shortlist_methods,

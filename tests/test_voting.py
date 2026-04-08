@@ -38,6 +38,44 @@ class VotingTests(unittest.TestCase):
             counts_by_reviewer[assignment.reviewer] += 1
         self.assertTrue(all(count == 2 for count in counts_by_reviewer.values()))
 
+    def test_generate_review_assignments_covers_every_method_in_governance_universe(self) -> None:
+        from core.voting import generate_review_assignments
+
+        methods = (
+            "equal_weight",
+            "inverse_volatility",
+            "max_sharpe",
+            "global_min_variance",
+            "risk_parity",
+            "volatility_targeting",
+            "black_litterman",
+            "robust_mean_variance",
+            "mean_downside_risk",
+            "maximum_diversification",
+            "minimum_correlation",
+        )
+        categories = {
+            "equal_weight": "heuristic",
+            "inverse_volatility": "heuristic",
+            "max_sharpe": "return_optimized",
+            "black_litterman": "return_optimized",
+            "robust_mean_variance": "return_optimized",
+            "global_min_variance": "risk_structured",
+            "risk_parity": "risk_structured",
+            "volatility_targeting": "risk_structured",
+            "mean_downside_risk": "risk_structured",
+            "maximum_diversification": "risk_structured",
+            "minimum_correlation": "risk_structured",
+        }
+
+        assignments = generate_review_assignments(methods=methods, categories=categories, reviews_per_reviewer=2, seed=0)
+
+        inbound_counts = {method: 0 for method in methods}
+        for assignment in assignments:
+            inbound_counts[assignment.reviewed_method] += 1
+
+        self.assertTrue(all(count >= 1 for count in inbound_counts.values()), inbound_counts)
+
     def test_tally_peer_reviews_and_select_shortlist_enforce_diversity_rule(self) -> None:
         from core.voting import (
             PeerReview,

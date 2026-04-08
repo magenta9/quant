@@ -199,6 +199,31 @@ class YFinanceDataProviderTests(unittest.TestCase):
         self.assertEqual(result["vix"].status, "missing")
         self.assertIsNone(result["vix"].value)
 
+    def test_get_macro_indicators_honors_as_of_cutoff(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2025, 6, 30, tzinfo=UTC),
+                        {
+                            "Close": 16.5,
+                        },
+                    ),
+                    (
+                        datetime(2026, 1, 31, tzinfo=UTC),
+                        {
+                            "Close": 18.5,
+                        },
+                    ),
+                ]
+            )
+        )
+
+        result = provider.get_macro_indicators(as_of="2025-06-30")
+
+        self.assertEqual(result["vix"].value, 16.5)
+        self.assertEqual(result["vix"].as_of, "2025-06-30T00:00:00+00:00")
+
     def test_get_asset_history_surfaces_nan_fields_as_explicit_issues(self) -> None:
         provider = YFinanceDataProvider(
             ticker_factory=lambda ticker: _FakeTicker(

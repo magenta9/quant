@@ -25,14 +25,14 @@ CATEGORY_BY_METHOD = {
     "equal_weight": "heuristic",
     "inverse_volatility": "heuristic",
     "max_sharpe": "return_optimized",
-    "global_min_variance": "risk_optimized",
-    "risk_parity": "risk_optimized",
-    "volatility_targeting": "risk_optimized",
+    "global_min_variance": "risk_structured",
+    "risk_parity": "risk_structured",
+    "volatility_targeting": "risk_structured",
     "black_litterman": "return_optimized",
     "robust_mean_variance": "return_optimized",
-    "mean_downside_risk": "risk_optimized",
-    "maximum_diversification": "risk_optimized",
-    "minimum_correlation": "risk_optimized",
+    "mean_downside_risk": "risk_structured",
+    "maximum_diversification": "risk_structured",
+    "minimum_correlation": "risk_structured",
 }
 
 

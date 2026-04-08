@@ -403,6 +403,50 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(scored_rows, 11)
         self.assertEqual(shortlist_rows, 5)
 
+    def test_governance_scores_only_update_current_run_rows_when_database_reuses_timestamp(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+
+        run_phase2_pipeline(
+            ips_path=Path("config/ips.md"),
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="baseline-run",
+            governance_mode=False,
+        )
+        run_phase2_pipeline(
+            ips_path=Path("config/ips.md"),
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="governance-run",
+            governance_mode=True,
+        )
+
+        with sqlite3.connect(self.database_path) as connection:
+            baseline_scored_rows = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM portfolio_proposals
+                WHERE run_id = 'baseline-run'
+                  AND (review_score IS NOT NULL OR vote_points IS NOT NULL OR in_top5 IS NOT NULL)
+                """
+            ).fetchone()[0]
+            governance_scored_rows = connection.execute(
+                """
+                SELECT COUNT(*)
+                FROM portfolio_proposals
+                WHERE run_id = 'governance-run'
+                  AND review_score IS NOT NULL
+                  AND vote_points IS NOT NULL
+                """
+            ).fetchone()[0]
+
+        self.assertEqual(baseline_scored_rows, 0)
+        self.assertEqual(governance_scored_rows, 11)
+
     def test_run_phase2_pipeline_replay_mode_forwards_as_of_to_provider(self) -> None:
         from core.pipeline import run_phase2_pipeline
 

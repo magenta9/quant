@@ -87,57 +87,43 @@ def generate_review_assignments(
     seed: int = 0,
 ) -> tuple[ReviewAssignment, ...]:
     ordered_methods = tuple(sorted(methods))
-    assignments: list[ReviewAssignment] = []
+    assignments_by_reviewer = {reviewer: [] for reviewer in ordered_methods}
+    inbound_counts = {method: 0 for method in ordered_methods}
 
-    for reviewer_index, reviewer in enumerate(ordered_methods):
-        same_category = [
-            method
-            for method in ordered_methods
-            if method != reviewer and categories.get(method) == categories.get(reviewer)
-        ]
-        cross_category = [
-            method
-            for method in ordered_methods
-            if method != reviewer and categories.get(method) != categories.get(reviewer)
-        ]
-        same_category = _rotated(same_category, seed + reviewer_index)
-        cross_category = _rotated(cross_category, seed + reviewer_index)
-
-        chosen: list[ReviewAssignment] = []
-        used: set[str] = set()
-
-        if same_category:
-            chosen.append(
+    for slot_index in range(reviews_per_reviewer):
+        for reviewer_index, reviewer in enumerate(ordered_methods):
+            used = {assignment.reviewed_method for assignment in assignments_by_reviewer[reviewer]}
+            review_type = _preferred_review_type(
+                reviewer=reviewer,
+                categories=categories,
+                ordered_methods=ordered_methods,
+                used=used,
+                slot_index=slot_index,
+            )
+            eligible = _eligible_targets(
+                reviewer=reviewer,
+                categories=categories,
+                ordered_methods=ordered_methods,
+                used=used,
+                review_type=review_type,
+            )
+            if not eligible:
+                continue
+            ranked_eligible = _rotated(eligible, seed + reviewer_index + slot_index)
+            reviewed_method = min(
+                ranked_eligible,
+                key=lambda method: (inbound_counts[method], ranked_eligible.index(method)),
+            )
+            assignments_by_reviewer[reviewer].append(
                 ReviewAssignment(
                     reviewer=reviewer,
-                    reviewed_method=same_category[0],
-                    review_type="same_category",
+                    reviewed_method=reviewed_method,
+                    review_type=review_type,
                 )
             )
-            used.add(same_category[0])
-        if len(chosen) < reviews_per_reviewer and cross_category:
-            next_cross = next(method for method in cross_category if method not in used)
-            chosen.append(
-                ReviewAssignment(
-                    reviewer=reviewer,
-                    reviewed_method=next_cross,
-                    review_type="cross_category",
-                )
-            )
-            used.add(next_cross)
+            inbound_counts[reviewed_method] += 1
 
-        remaining = _rotated(
-            [method for method in ordered_methods if method != reviewer and method not in used],
-            seed + reviewer_index,
-        )
-        for method in remaining:
-            if len(chosen) >= reviews_per_reviewer:
-                break
-            chosen.append(ReviewAssignment(reviewer=reviewer, reviewed_method=method, review_type="fallback"))
-            used.add(method)
-
-        assignments.extend(chosen)
-
+    assignments = [assignment for reviewer in ordered_methods for assignment in assignments_by_reviewer[reviewer]]
     return tuple(assignments)
 
 
@@ -204,6 +190,65 @@ def _rotated(values: list[str], offset: int) -> list[str]:
         return []
     offset = offset % len(values)
     return values[offset:] + values[:offset]
+
+
+def _preferred_review_type(
+    *,
+    reviewer: str,
+    categories: dict[str, str],
+    ordered_methods: tuple[str, ...],
+    used: set[str],
+    slot_index: int,
+) -> Literal["same_category", "cross_category", "fallback"]:
+    if slot_index == 0 and _eligible_targets(
+        reviewer=reviewer,
+        categories=categories,
+        ordered_methods=ordered_methods,
+        used=used,
+        review_type="same_category",
+    ):
+        return "same_category"
+    if slot_index == 1 and _eligible_targets(
+        reviewer=reviewer,
+        categories=categories,
+        ordered_methods=ordered_methods,
+        used=used,
+        review_type="cross_category",
+    ):
+        return "cross_category"
+    if _eligible_targets(
+        reviewer=reviewer,
+        categories=categories,
+        ordered_methods=ordered_methods,
+        used=used,
+        review_type="same_category",
+    ):
+        return "same_category"
+    if _eligible_targets(
+        reviewer=reviewer,
+        categories=categories,
+        ordered_methods=ordered_methods,
+        used=used,
+        review_type="cross_category",
+    ):
+        return "cross_category"
+    return "fallback"
+
+
+def _eligible_targets(
+    *,
+    reviewer: str,
+    categories: dict[str, str],
+    ordered_methods: tuple[str, ...],
+    used: set[str],
+    review_type: Literal["same_category", "cross_category", "fallback"],
+) -> list[str]:
+    candidates = [method for method in ordered_methods if method != reviewer and method not in used]
+    if review_type == "same_category":
+        return [method for method in candidates if categories.get(method) == categories.get(reviewer)]
+    if review_type == "cross_category":
+        return [method for method in candidates if categories.get(method) != categories.get(reviewer)]
+    return candidates
 
 
 def _strengths(*, proposal: object, risk_report: object) -> tuple[str, ...]:

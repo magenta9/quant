@@ -37,6 +37,8 @@ class PortfolioReportingAgentConfigTests(unittest.TestCase):
         )
 
     def test_pc_method_wrappers_document_mvp_method_metadata(self) -> None:
+        from core.portfolio_optimizer import CATEGORY_BY_METHOD
+
         expected_methods = {
             "equal_weight": {
                 "method_name": "Equal Weight",
@@ -144,6 +146,7 @@ class PortfolioReportingAgentConfigTests(unittest.TestCase):
             self.assertEqual(payload["metadata"]["expected_return_input"], expected["expected_return_input"])
             self.assertEqual(payload["metadata"]["solver_style"], expected["solver_style"])
             self.assertEqual(payload["metadata"]["skill_path"], f"skills/{slug}/SKILL.md")
+            self.assertEqual(payload["metadata"]["method_category"], CATEGORY_BY_METHOD[slug])
 
             skill_path = Path(payload["metadata"]["skill_path"])
             self.assertEqual(skill_path.name, "SKILL.md")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 import math
 from typing import Any, Callable, Literal
 
@@ -124,7 +124,7 @@ class YFinanceDataProvider:
                 )
                 continue
 
-            latest_point = self._last_history_point(history)
+            latest_point = self._last_history_point(history, as_of=as_of)
             if latest_point is None or latest_point.close is None:
                 results[spec.name] = MacroIndicatorValue(
                     name=spec.name,
@@ -174,7 +174,7 @@ class YFinanceDataProvider:
         issues: list[DataFetchIssue] = []
         for index, row in history.iterrows():
             point, point_issues = self._coerce_history_point(index, row, asset.proxy_ticker)
-            if as_of is not None and point.timestamp > as_of:
+            if as_of is not None and not self._is_on_or_before_as_of(point.timestamp, as_of):
                 continue
             points.append(point)
             issues.extend(point_issues)
@@ -214,11 +214,13 @@ class YFinanceDataProvider:
         return yf.Ticker(ticker)
 
     @staticmethod
-    def _last_history_point(history: Any) -> HistoricalPricePoint | None:
+    def _last_history_point(history: Any, *, as_of: str | None = None) -> HistoricalPricePoint | None:
         points = [YFinanceDataProvider._coerce_history_point(index, row, None)[0] for index, row in history.iterrows()]
+        if as_of is not None:
+            points = [point for point in points if YFinanceDataProvider._is_on_or_before_as_of(point.timestamp, as_of)]
         if not points:
             return None
-        return points[-1]
+        return max(points, key=lambda point: YFinanceDataProvider._parse_temporal(point.timestamp))
 
     @staticmethod
     def _coerce_history_point(
@@ -262,6 +264,21 @@ class YFinanceDataProvider:
         if isinstance(value, date):
             return value.isoformat()
         return str(value)
+
+    @staticmethod
+    def _parse_temporal(value: str) -> datetime:
+        text = value.replace("Z", "+00:00")
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            parsed = datetime.combine(date.fromisoformat(value), datetime.min.time(), tzinfo=UTC)
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=UTC)
+        return parsed
+
+    @staticmethod
+    def _is_on_or_before_as_of(timestamp: str, as_of: str) -> bool:
+        return YFinanceDataProvider._parse_temporal(timestamp) <= YFinanceDataProvider._parse_temporal(as_of)
 
     @staticmethod
     def _coerce_float(value: Any) -> float | None:

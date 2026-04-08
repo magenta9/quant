@@ -52,6 +52,7 @@ TABLE_SCHEMAS: dict[str, tuple[ColumnDefinition, ...]] = {
     ),
     "portfolio_proposals": (
         ColumnDefinition("id", "INTEGER", "PRIMARY KEY"),
+        ColumnDefinition("run_id", "TEXT", "NOT NULL", additive_repair_default="''"),
         ColumnDefinition("timestamp", "TEXT", "NOT NULL"),
         ColumnDefinition("method", "TEXT", "NOT NULL"),
         ColumnDefinition("category", "TEXT", "NOT NULL"),
@@ -174,16 +175,17 @@ def persist_cma_methods(database_path: str | Path, asset_slug: str, timestamp: s
         connection.commit()
 
 
-def persist_portfolio_proposal(database_path: str | Path, proposal: object) -> None:
-    persist_portfolio_proposals(database_path, proposals=(proposal,))
+def persist_portfolio_proposal(database_path: str | Path, proposal: object, *, run_id: str = "") -> None:
+    persist_portfolio_proposals(database_path, proposals=(proposal,), run_id=run_id)
 
 
-def persist_portfolio_proposals(database_path: str | Path, *, proposals: tuple[object, ...]) -> None:
+def persist_portfolio_proposals(database_path: str | Path, *, proposals: tuple[object, ...], run_id: str = "") -> None:
     rows = []
     for proposal in proposals:
         payload = proposal.to_dict()
         rows.append(
             (
+                run_id,
                 payload["timestamp"],
                 payload["method"],
                 payload["category"],
@@ -203,6 +205,7 @@ def persist_portfolio_proposals(database_path: str | Path, *, proposals: tuple[o
         connection.executemany(
             """
             INSERT INTO portfolio_proposals (
+                run_id,
                 timestamp,
                 method,
                 category,
@@ -215,7 +218,7 @@ def persist_portfolio_proposals(database_path: str | Path, *, proposals: tuple[o
                 review_score,
                 vote_points,
                 in_top5
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )
@@ -308,6 +311,7 @@ def persist_board_memo(
 def persist_governance_scores(
     database_path: str | Path,
     *,
+    run_id: str,
     timestamp: str,
     tallies: tuple[object, ...],
     shortlist_methods: tuple[str, ...],
@@ -318,6 +322,7 @@ def persist_governance_scores(
             tally.average_total_score,
             tally.total_vote_points,
             tally.method in shortlist_set,
+            run_id,
             timestamp,
             tally.method,
         )
@@ -328,7 +333,7 @@ def persist_governance_scores(
             """
             UPDATE portfolio_proposals
             SET review_score = ?, vote_points = ?, in_top5 = ?
-            WHERE timestamp = ? AND method = ?
+            WHERE run_id = ? AND timestamp = ? AND method = ?
             """,
             rows,
         )
@@ -372,6 +377,7 @@ def persist_meta_feedback(
 def persist_portfolio_stage(
     database_path: str | Path,
     *,
+    run_id: str = "",
     proposals: tuple[object, ...],
     risk_reports: tuple[tuple[str, object], ...],
 ) -> None:
@@ -380,6 +386,7 @@ def persist_portfolio_stage(
         payload = proposal.to_dict()
         proposal_rows.append(
             (
+                run_id,
                 payload["timestamp"],
                 payload["method"],
                 payload["category"],
@@ -415,6 +422,7 @@ def persist_portfolio_stage(
             connection.executemany(
                 """
                 INSERT INTO portfolio_proposals (
+                    run_id,
                     timestamp,
                     method,
                     category,
@@ -427,7 +435,7 @@ def persist_portfolio_stage(
                     review_score,
                     vote_points,
                     in_top5
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 proposal_rows,
             )
