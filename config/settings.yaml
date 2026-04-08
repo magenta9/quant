@@ -1,5 +1,7 @@
 # Environment-driven runtime settings for the MVP foundation.
 # Future runtime code should resolve each `env` key first and fall back to `default`.
+# Relative path defaults and env-provided relative paths should be resolved from the
+# resolved `project_root` (repo root by default).
 
 data_provider:
   market_data:

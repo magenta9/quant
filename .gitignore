@@ -1,4 +1,4 @@
 .worktrees/
-database/portfolio.db
+database/portfolio.db*
 output/runs/*
 !output/runs/.gitkeep
