@@ -48,6 +48,44 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(payload["key_indicators"]["vix"], 18.5)
         self.assertEqual(payload["risks"], ["oil shock", "policy error"])
 
+    def test_macro_view_rejects_unknown_regime(self) -> None:
+        with self.assertRaisesRegex(ValueError, "regime"):
+            MacroView(
+                timestamp="2026-04-09T12:00:00Z",
+                regime="sideways",
+                confidence="medium",
+                scores=MacroScores(growth=-2, inflation=2, monetary_policy=1, financial_conditions=0),
+                composite_score=0.1,
+                recession_probability=0.3,
+                key_indicators=IndicatorSnapshot(
+                    gdp_growth_yoy=2.1,
+                    cpi_yoy=2.8,
+                    fed_funds_rate=4.5,
+                    vix=18.5,
+                    credit_spreads=120,
+                ),
+                outlook="Invalid regime test",
+            )
+
+    def test_macro_view_rejects_unknown_confidence(self) -> None:
+        with self.assertRaisesRegex(ValueError, "confidence"):
+            MacroView(
+                timestamp="2026-04-09T12:00:00Z",
+                regime="late_cycle",
+                confidence="certain",
+                scores=MacroScores(growth=2, inflation=-1, monetary_policy=1, financial_conditions=0),
+                composite_score=0.1,
+                recession_probability=0.3,
+                key_indicators=IndicatorSnapshot(
+                    gdp_growth_yoy=2.1,
+                    cpi_yoy=2.8,
+                    fed_funds_rate=4.5,
+                    vix=18.5,
+                    credit_spreads=120,
+                ),
+                outlook="Invalid confidence test",
+            )
+
     def test_asset_cma_output_captures_method_range_and_selected_estimate(self) -> None:
         methods = (
             CMAMethodEstimate(name="historical_erp", expected_return=0.08, confidence=0.6),
@@ -217,6 +255,58 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(historical_stats.to_dict()["annual_volatility"], 0.16)
         self.assertEqual(scenarios[1].to_dict()["name"], "base")
         self.assertEqual(correlation_row.to_dict()["correlations"]["us_short_treasury"], -0.05)
+
+    def test_portfolio_proposal_rejects_negative_weights(self) -> None:
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            PortfolioProposalOutput(
+                timestamp="2026-04-09T12:00:00Z",
+                method="max_sharpe",
+                category="return_optimized",
+                weights={"us_large_cap": -0.1, "us_short_treasury": 1.1},
+                expected_return=0.06,
+                expected_volatility=0.08,
+                sharpe_ratio=0.5,
+                max_drawdown=-0.18,
+                effective_n=1.6,
+                concentration=0.625,
+                metadata={},
+            )
+
+    def test_portfolio_proposal_rejects_weights_that_do_not_sum_to_one(self) -> None:
+        with self.assertRaisesRegex(ValueError, "sum to 1"):
+            PortfolioProposalOutput(
+                timestamp="2026-04-09T12:00:00Z",
+                method="max_sharpe",
+                category="return_optimized",
+                weights={"us_large_cap": 0.2, "us_short_treasury": 0.7},
+                expected_return=0.06,
+                expected_volatility=0.08,
+                sharpe_ratio=0.5,
+                max_drawdown=-0.18,
+                effective_n=1.6,
+                concentration=0.625,
+                metadata={},
+            )
+
+    def test_cro_ips_diagnostic_rejects_passing_state_with_violations(self) -> None:
+        with self.assertRaisesRegex(ValueError, "passes"):
+            CROIPSDiagnostic(
+                tracking_error=0.03,
+                within_tracking_budget=True,
+                asset_bounds_ok=True,
+                passes=True,
+                violations=("tracking error breach",),
+            )
+
+    def test_cro_ips_diagnostic_rejects_failing_state_without_any_flags(self) -> None:
+        with self.assertRaisesRegex(ValueError, "passes"):
+            CROIPSDiagnostic(
+                tracking_error=0.03,
+                within_tracking_budget=True,
+                asset_bounds_ok=True,
+                passes=False,
+                violations=(),
+            )
 
 
 if __name__ == "__main__":

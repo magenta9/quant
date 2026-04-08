@@ -70,6 +70,10 @@ class AssetRegistryTests(unittest.TestCase):
         self.assertEqual(SIXTY_FORTY_BENCHMARK.equity_benchmark_label, "MSCI ACWI")
         self.assertEqual(SIXTY_FORTY_BENCHMARK.fixed_income_benchmark_label, "Bloomberg Aggregate")
 
+    def test_get_asset_reports_available_slugs_for_unknown_asset(self) -> None:
+        with self.assertRaisesRegex(KeyError, "Unknown asset slug 'not_real'"):
+            get_asset("not_real")
+
 
 if __name__ == "__main__":
     unittest.main()

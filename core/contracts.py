@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, fields
 from typing import Any, Literal
+
+VALID_MACRO_REGIMES = {"expansion", "late_cycle", "recession", "recovery"}
+VALID_CONFIDENCE_LEVELS = {"low", "medium", "high"}
+WEIGHT_SUM_TOLERANCE = 1e-6
 
 
 def _json_ready(value: Any) -> Any:
@@ -51,6 +56,12 @@ class MacroView(SerializableContract):
     outlook: str
     risks: tuple[str, ...] = ()
     allocation_implications: str = ""
+
+    def __post_init__(self) -> None:
+        if self.regime not in VALID_MACRO_REGIMES:
+            raise ValueError(f"regime must be one of {sorted(VALID_MACRO_REGIMES)}")
+        if self.confidence not in VALID_CONFIDENCE_LEVELS:
+            raise ValueError(f"confidence must be one of {sorted(VALID_CONFIDENCE_LEVELS)}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -164,6 +175,12 @@ class PortfolioProposalOutput(SerializableContract):
     concentration: float
     metadata: dict[str, Any]
 
+    def __post_init__(self) -> None:
+        if any(weight < 0 for weight in self.weights.values()):
+            raise ValueError("weights must be non-negative")
+        if not math.isclose(sum(self.weights.values()), 1.0, rel_tol=0.0, abs_tol=WEIGHT_SUM_TOLERANCE):
+            raise ValueError("weights must sum to 1 within tolerance")
+
 
 @dataclass(frozen=True, slots=True)
 class CROExAnteMetrics(SerializableContract):
@@ -212,6 +229,13 @@ class CROIPSDiagnostic(SerializableContract):
     asset_bounds_ok: bool
     passes: bool
     violations: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        has_failure_signal = (not self.within_tracking_budget) or (not self.asset_bounds_ok) or bool(self.violations)
+        if self.passes and has_failure_signal:
+            raise ValueError("passes cannot be true when component checks or violations indicate failure")
+        if not self.passes and not has_failure_signal:
+            raise ValueError("passes cannot be false when all component checks pass and no violations exist")
 
 
 @dataclass(frozen=True, slots=True)

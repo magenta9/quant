@@ -63,7 +63,11 @@ SIXTY_FORTY_BENCHMARK: Final[BenchmarkDefinition] = BenchmarkDefinition(
 
 
 def get_asset(slug: str) -> AssetDefinition:
-    return ASSETS_BY_SLUG[slug]
+    try:
+        return ASSETS_BY_SLUG[slug]
+    except KeyError as error:
+        available = ", ".join(ASSET_ORDER)
+        raise KeyError(f"Unknown asset slug '{slug}'. Available slugs: {available}") from error
 
 
 def build_60_40_benchmark() -> dict[str, float]:
