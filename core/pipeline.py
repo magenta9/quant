@@ -143,7 +143,7 @@ def run_phase2_pipeline(
             factor_exposures=build_factor_exposures(ips_assets),
             asset_slugs=ips_assets,
         )
-        risk_report = annotate_projection_violations(risk_report, proposal=proposal)
+        risk_report = annotate_projection_warnings(risk_report, proposal=proposal)
         risk_reports.append(risk_report)
 
     portfolio_proposals = tuple(portfolio_proposals)
@@ -226,10 +226,10 @@ def build_factor_exposures(asset_slugs: tuple[str, ...]) -> dict[str, dict[str, 
     return exposures
 
 
-def annotate_projection_violations(risk_report: CRORiskReportOutput, *, proposal: object) -> CRORiskReportOutput:
+def annotate_projection_warnings(risk_report: CRORiskReportOutput, *, proposal: object) -> CRORiskReportOutput:
     if not proposal.metadata.get("constraint_projection_applied"):
         return risk_report
-    violations = risk_report.ips_compliance.violations + (
+    warnings = risk_report.ips_compliance.warnings + (
         "optimizer raw weights breached IPS bounds; deterministic projection applied before reporting",
     )
     return CRORiskReportOutput(
@@ -242,8 +242,9 @@ def annotate_projection_violations(risk_report: CRORiskReportOutput, *, proposal
             tracking_error=risk_report.ips_compliance.tracking_error,
             within_tracking_budget=risk_report.ips_compliance.within_tracking_budget,
             asset_bounds_ok=risk_report.ips_compliance.asset_bounds_ok,
-            passes=False,
-            violations=violations,
+            passes=risk_report.ips_compliance.passes,
+            violations=risk_report.ips_compliance.violations,
+            warnings=warnings,
         ),
     )
 

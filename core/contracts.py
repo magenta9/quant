@@ -230,6 +230,7 @@ class CROIPSDiagnostic(SerializableContract):
     asset_bounds_ok: bool
     passes: bool
     violations: tuple[str, ...]
+    warnings: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         has_failure_signal = (not self.within_tracking_budget) or (not self.asset_bounds_ok) or bool(self.violations)

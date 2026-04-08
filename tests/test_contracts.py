@@ -156,7 +156,14 @@ class ContractTests(unittest.TestCase):
             ),
             concentration=CROConcentrationMetrics(effective_n=1.6, herfindahl=0.625, top5_concentration=1.0, max_weight=0.75),
             factor_tilts=CROFactorTilts(equity_beta=0.4, duration=5.8, credit_spread=0.2, dollar_exposure=0.9),
-            ips_compliance=CROIPSDiagnostic(tracking_error=0.03, within_tracking_budget=True, asset_bounds_ok=True, passes=True, violations=()),
+            ips_compliance=CROIPSDiagnostic(
+                tracking_error=0.03,
+                within_tracking_budget=True,
+                asset_bounds_ok=True,
+                passes=True,
+                violations=(),
+                warnings=("weights were clipped before final reporting",),
+            ),
         )
         board_memo = CIOBoardMemoOutput(
             selected_ensemble="composite_score_weighting",
@@ -182,6 +189,7 @@ class ContractTests(unittest.TestCase):
         self.assertEqual(risk_report.to_dict()["ex_ante"]["return"], 0.06)
         self.assertEqual(risk_report.to_dict()["backtest"]["sortino_ratio"], 0.72)
         self.assertEqual(risk_report.to_dict()["ips_compliance"]["passes"], True)
+        self.assertEqual(risk_report.to_dict()["ips_compliance"]["warnings"][0], "weights were clipped before final reporting")
         self.assertEqual(board_memo.to_dict()["top_positions"][0]["asset"], "us_large_cap")
 
     def test_covariance_output_preserves_labels_and_matrices(self) -> None:

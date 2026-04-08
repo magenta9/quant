@@ -139,10 +139,11 @@ class PipelineTests(unittest.TestCase):
             self.assertEqual(report_payload["method"], report.method)
             self.assertIn("ips_compliance", report_payload)
             self.assertIn("violations", report_payload["ips_compliance"])
+            self.assertIn("warnings", report_payload["ips_compliance"])
         self.assertTrue(any(proposal.metadata["constraint_projection_applied"] for proposal in result.portfolio_proposals))
         self.assertTrue(
             any(
-                any("projection applied" in violation for violation in report.ips_compliance.violations)
+                any("projection applied" in warning for warning in report.ips_compliance.warnings)
                 for report in result.risk_reports
             )
         )
@@ -187,7 +188,8 @@ class PipelineTests(unittest.TestCase):
         self.assertGreater(stored_proposal[4], 0.0)
         self.assertEqual(stored_risk_report[0], "max_sharpe")
         self.assertIn("volatility", json.loads(stored_risk_report[1]))
-        self.assertTrue(json.loads(stored_risk_report[2])["violations"])
+        self.assertTrue(json.loads(stored_risk_report[2])["passes"])
+        self.assertTrue(json.loads(stored_risk_report[2])["warnings"])
 
     def test_run_phase2_pipeline_uses_pinned_mvp_method_list_even_if_registry_grows(self) -> None:
         from core.pipeline import run_phase2_pipeline
@@ -254,6 +256,50 @@ class PipelineTests(unittest.TestCase):
             list((self.workspace / "output" / "runs" / "run-phase2-atomicity-failure" / "risk").rglob("risk_report.json")),
             [],
         )
+
+    def test_run_phase2_pipeline_preserves_real_ips_violations_in_artifacts_and_sqlite(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+        low_budget_ips = self.workspace / "strict_tracking_error_ips.md"
+        low_budget_ips.write_text(
+            Path("config/ips.md").read_text(encoding="utf-8").replace(
+                "Tracking Error vs 60/40**: Maximum 6% annualized",
+                "Tracking Error vs 60/40**: Maximum 0.001% annualized",
+            ),
+            encoding="utf-8",
+        )
+
+        result = run_phase2_pipeline(
+            ips_path=low_budget_ips,
+            output_root=self.workspace / "output" / "runs",
+            database_path=self.database_path,
+            data_provider=provider,
+            run_id="run-phase2-strict-budget",
+        )
+
+        violating_report = next(report for report in result.risk_reports if report.ips_compliance.violations)
+        self.assertFalse(violating_report.ips_compliance.passes)
+        self.assertTrue(
+            any("tracking error" in violation for violation in violating_report.ips_compliance.violations)
+        )
+
+        artifact_payload = json.loads(
+            (result.run_directory / "risk" / violating_report.method / "risk_report.json").read_text(encoding="utf-8")
+        )
+        self.assertTrue(artifact_payload["ips_compliance"]["violations"])
+
+        with sqlite3.connect(self.database_path) as connection:
+            stored_violations = connection.execute(
+                """
+                SELECT ips_compliance_json
+                FROM risk_reports
+                WHERE method = ?
+                """,
+                (violating_report.method,),
+            ).fetchone()[0]
+
+        self.assertTrue(json.loads(stored_violations)["violations"])
 
     def test_run_phase2_pipeline_rejects_ips_that_do_not_cover_all_registered_assets(self) -> None:
         from core.pipeline import run_phase2_pipeline

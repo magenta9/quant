@@ -306,6 +306,7 @@ class DatabaseInitializationTests(unittest.TestCase):
                 asset_bounds_ok=True,
                 passes=False,
                 violations=("optimizer raw weights breached IPS bounds; deterministic projection applied before reporting",),
+                warnings=("optimizer weights were clipped before final reporting",),
             ),
         )
 
@@ -337,6 +338,7 @@ class DatabaseInitializationTests(unittest.TestCase):
         self.assertEqual(stored_risk_report[0], "max_sharpe")
         self.assertEqual(json.loads(stored_risk_report[1])["return"], 0.071)
         self.assertTrue(json.loads(stored_risk_report[2])["violations"])
+        self.assertTrue(json.loads(stored_risk_report[2])["warnings"])
 
 
 if __name__ == "__main__":
