@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "global_min_variance"
+  role: "Global Minimum Variance Portfolio Constructor"
+metadata:
+  method_slug: "global_min_variance"
+  method_name: "Global Minimum Variance"
+  method_category: "risk_structured"
+  objective: "Minimize ex-ante portfolio variance subject to long-only, fully invested MVP constraints."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "constrained_optimization"
+  skill_path: "skills/global_min_variance/SKILL.md"

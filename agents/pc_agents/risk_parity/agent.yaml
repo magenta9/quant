@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "risk_parity"
+  role: "Risk Parity Portfolio Constructor"
+metadata:
+  method_slug: "risk_parity"
+  method_name: "Risk Parity"
+  method_category: "risk_structured"
+  objective: "Iteratively equalize risk contributions across eligible sleeves while respecting deterministic IPS limits."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "iterative_optimization"
+  skill_path: "skills/risk_parity/SKILL.md"

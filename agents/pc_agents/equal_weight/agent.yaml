@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "equal_weight"
+  role: "Equal Weight Portfolio Constructor"
+metadata:
+  method_slug: "equal_weight"
+  method_name: "Equal Weight"
+  method_category: "heuristic"
+  objective: "Allocate equal weights across all eligible assets after deterministic IPS filtering."
+  primary_risk_input: "none"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "direct_allocation"
+  skill_path: "skills/equal_weight/SKILL.md"
