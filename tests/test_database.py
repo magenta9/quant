@@ -2,7 +2,7 @@ import sqlite3
 import unittest
 from pathlib import Path
 
-from core.database import initialize_database
+from core.database import SchemaDriftError, initialize_database
 
 
 class DatabaseInitializationTests(unittest.TestCase):
@@ -99,6 +99,114 @@ class DatabaseInitializationTests(unittest.TestCase):
             row_count = connection.execute("SELECT COUNT(*) FROM macro_views").fetchone()[0]
 
         self.assertEqual(row_count, 1)
+
+    def test_initialize_database_adds_missing_columns_to_partial_table(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE macro_views (
+                    id INTEGER PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    regime TEXT NOT NULL
+                )
+                """
+            )
+            connection.commit()
+
+        initialize_database(self.database_path)
+
+        with sqlite3.connect(self.database_path) as connection:
+            macro_columns = [
+                row[1]
+                for row in connection.execute("PRAGMA table_info(macro_views)")
+            ]
+
+        self.assertEqual(
+            macro_columns,
+            [
+                "id",
+                "timestamp",
+                "regime",
+                "confidence",
+                "composite_score",
+                "recession_probability",
+                "scores_json",
+                "key_indicators_json",
+            ],
+        )
+
+    def test_initialize_database_repairs_nonempty_partial_table_when_additive_migration_is_safe(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE macro_views (
+                    id INTEGER PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    regime TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO macro_views (timestamp, regime)
+                VALUES ('2026-04-09T12:00:00Z', 'late_cycle')
+                """
+            )
+            connection.commit()
+
+        initialize_database(self.database_path)
+
+        with sqlite3.connect(self.database_path) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    timestamp,
+                    regime,
+                    confidence,
+                    composite_score,
+                    recession_probability,
+                    scores_json,
+                    key_indicators_json
+                FROM macro_views
+                """
+            ).fetchone()
+
+        self.assertEqual(
+            row,
+            (
+                "2026-04-09T12:00:00Z",
+                "late_cycle",
+                None,
+                None,
+                None,
+                "{}",
+                "{}",
+            ),
+        )
+
+    def test_initialize_database_fails_loudly_when_required_nonnullable_column_cannot_be_added(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with sqlite3.connect(self.database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE cma_results (
+                    id INTEGER PRIMARY KEY,
+                    asset_slug TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT INTO cma_results (asset_slug)
+                VALUES ('us_large_cap')
+                """
+            )
+            connection.commit()
+
+        with self.assertRaisesRegex(SchemaDriftError, "missing required columns"):
+            initialize_database(self.database_path)
 
 
 if __name__ == "__main__":

@@ -219,6 +219,32 @@ class YFinanceDataProviderTests(unittest.TestCase):
             ["missing_history_field", "missing_history_field"],
         )
 
+    def test_get_asset_history_treats_invalid_numeric_values_as_missing(self) -> None:
+        provider = YFinanceDataProvider(
+            ticker_factory=lambda ticker: _FakeTicker(
+                history_rows=[
+                    (
+                        datetime(2026, 4, 2, tzinfo=UTC),
+                        {
+                            "Open": "bad-open",
+                            "Close": 42.0,
+                            "Volume": "bad-volume",
+                        },
+                    )
+                ],
+                info={"shortName": "Invesco DB Commodity Index Tracking Fund"},
+            )
+        )
+
+        result = provider.get_asset_history("commodities", period="1mo", interval="1d")
+
+        self.assertIsNone(result.points[0].open)
+        self.assertIsNone(result.points[0].volume)
+        self.assertEqual(
+            [issue.code for issue in result.issues],
+            ["missing_history_field", "missing_history_field"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

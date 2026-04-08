@@ -291,13 +291,19 @@ class YFinanceDataProvider:
     def _coerce_float(value: Any) -> float | None:
         if value is None or YFinanceDataProvider._is_missing_number(value):
             return None
-        return float(value)
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _coerce_int(value: Any) -> int | None:
         if value is None or YFinanceDataProvider._is_missing_number(value):
             return None
-        return int(value)
+        try:
+            return int(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
 
     @staticmethod
     def _is_missing_number(value: Any) -> bool:
