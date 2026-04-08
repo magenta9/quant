@@ -168,6 +168,72 @@ def persist_cma_methods(database_path: str | Path, asset_slug: str, timestamp: s
         connection.commit()
 
 
+def persist_portfolio_proposal(database_path: str | Path, proposal: object) -> None:
+    payload = proposal.to_dict()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO portfolio_proposals (
+                timestamp,
+                method,
+                category,
+                weights_json,
+                expected_return,
+                expected_vol,
+                sharpe_ratio,
+                max_drawdown,
+                effective_n,
+                review_score,
+                vote_points,
+                in_top5
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["timestamp"],
+                payload["method"],
+                payload["category"],
+                json.dumps(payload["weights"], sort_keys=True),
+                payload["expected_return"],
+                payload["expected_volatility"],
+                payload["sharpe_ratio"],
+                payload["max_drawdown"],
+                payload["effective_n"],
+                None,
+                None,
+                None,
+            ),
+        )
+        connection.commit()
+
+
+def persist_risk_report(database_path: str | Path, *, timestamp: str, risk_report: object) -> None:
+    payload = risk_report.to_dict()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO risk_reports (
+                timestamp,
+                method,
+                ex_ante_json,
+                backtest_json,
+                concentration_json,
+                factor_tilts_json,
+                ips_compliance_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                timestamp,
+                payload["method"],
+                json.dumps(payload["ex_ante"], sort_keys=True),
+                json.dumps(payload["backtest"], sort_keys=True),
+                json.dumps(payload["concentration"], sort_keys=True),
+                json.dumps(payload["factor_tilts"], sort_keys=True),
+                json.dumps(payload["ips_compliance"], sort_keys=True),
+            ),
+        )
+        connection.commit()
+
+
 def _ensure_table_schema(
     connection: sqlite3.Connection,
     table_name: str,

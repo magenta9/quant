@@ -14,7 +14,8 @@ def _build_history(asset_slug: str, monthly_return: float, months: int = 36) -> 
     level = 100.0
     points: list[HistoricalPricePoint] = []
     for month in range(months):
-        level *= 1 + monthly_return
+        cycle_adjustment = ((month % 6) - 2.5) * 0.0003
+        level *= 1 + monthly_return + cycle_adjustment
         year = 2023 + (month // 12)
         month_number = (month % 12) + 1
         points.append(
@@ -92,15 +93,64 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(result.macro_result.macro_view.regime, "late_cycle")
         self.assertEqual(len(result.asset_results), 18)
         self.assertEqual(tuple(result.ips_assets), ASSET_ORDER)
+        self.assertEqual(result.covariance_output.asset_slugs, ASSET_ORDER)
+        self.assertEqual(
+            tuple(proposal.method for proposal in result.portfolio_proposals),
+            (
+                "equal_weight",
+                "inverse_volatility",
+                "max_sharpe",
+                "global_min_variance",
+                "risk_parity",
+            ),
+        )
+        self.assertEqual(
+            tuple(report.method for report in result.risk_reports),
+            (
+                "equal_weight",
+                "inverse_volatility",
+                "max_sharpe",
+                "global_min_variance",
+                "risk_parity",
+            ),
+        )
 
         macro_payload = json.loads((result.run_directory / "macro" / "macro_view.json").read_text(encoding="utf-8"))
         self.assertEqual(macro_payload["regime"], "late_cycle")
         self.assertTrue((result.run_directory / "assets" / "us_large_cap" / "cma.json").exists())
         self.assertTrue((result.run_directory / "assets" / "cash" / "cma_methods.json").exists())
+        covariance_payload = json.loads((result.run_directory / "covariance" / "covariance.json").read_text(encoding="utf-8"))
+        self.assertEqual(tuple(covariance_payload["asset_slugs"]), ASSET_ORDER)
+
+        for proposal in result.portfolio_proposals:
+            self.assertAlmostEqual(sum(proposal.weights.values()), 1.0, places=8)
+            self.assertTrue(all(weight >= 0.0 for weight in proposal.weights.values()))
+            proposal_payload = json.loads(
+                (result.run_directory / "portfolio" / proposal.method / "proposal.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(proposal_payload["method"], proposal.method)
+            self.assertIn("constraint_projection_applied", proposal_payload["metadata"])
+
+        for report in result.risk_reports:
+            report_payload = json.loads(
+                (result.run_directory / "risk" / report.method / "risk_report.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(report_payload["method"], report.method)
+            self.assertIn("ips_compliance", report_payload)
+            self.assertIn("violations", report_payload["ips_compliance"])
+        self.assertTrue(any(proposal.metadata["constraint_projection_applied"] for proposal in result.portfolio_proposals))
+        self.assertTrue(
+            any(
+                any("projection applied" in violation for violation in report.ips_compliance.violations)
+                for report in result.risk_reports
+            )
+        )
 
         with sqlite3.connect(self.database_path) as connection:
             macro_count = connection.execute("SELECT COUNT(*) FROM macro_views").fetchone()[0]
             cma_count = connection.execute("SELECT COUNT(*) FROM cma_results").fetchone()[0]
+            proposal_count = connection.execute("SELECT COUNT(*) FROM portfolio_proposals").fetchone()[0]
+            risk_report_count = connection.execute("SELECT COUNT(*) FROM risk_reports").fetchone()[0]
             unavailable_rows = connection.execute(
                 """
                 SELECT COUNT(*)
@@ -112,6 +162,8 @@ class PipelineTests(unittest.TestCase):
 
         self.assertEqual(macro_count, 1)
         self.assertEqual(cma_count, 18 * 7)
+        self.assertEqual(proposal_count, 5)
+        self.assertEqual(risk_report_count, 5)
         self.assertEqual(unavailable_rows, 18)
 
     def test_run_phase2_pipeline_rejects_ips_that_do_not_cover_all_registered_assets(self) -> None:
