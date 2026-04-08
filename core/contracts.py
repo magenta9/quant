@@ -67,10 +67,11 @@ class MacroView(SerializableContract):
 @dataclass(frozen=True, slots=True)
 class CMAMethodEstimate(SerializableContract):
     name: str
-    expected_return: float
-    confidence: float
+    expected_return: float | None
+    confidence: float | None
     available: bool = True
     rationale: str = ""
+    required_inputs: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

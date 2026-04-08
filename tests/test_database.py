@@ -2,7 +2,8 @@ import sqlite3
 import unittest
 from pathlib import Path
 
-from core.database import SchemaDriftError, initialize_database
+from core.contracts import CMAMethodEstimate
+from core.database import SchemaDriftError, initialize_database, persist_cma_methods
 
 
 class DatabaseInitializationTests(unittest.TestCase):
@@ -207,6 +208,42 @@ class DatabaseInitializationTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SchemaDriftError, "missing required columns"):
             initialize_database(self.database_path)
+
+    def test_persist_cma_methods_preserves_null_expected_return_for_stub_rows(self) -> None:
+        initialize_database(self.database_path)
+
+        persist_cma_methods(
+            self.database_path,
+            asset_slug="us_large_cap",
+            timestamp="2026-04-09T12:00:00Z",
+            methods=(
+                CMAMethodEstimate(name="historical_erp", expected_return=0.08, confidence=0.6),
+                CMAMethodEstimate(
+                    name="inverse_gordon",
+                    expected_return=None,
+                    confidence=None,
+                    available=False,
+                    rationale="Structured stub.",
+                ),
+            ),
+        )
+
+        with sqlite3.connect(self.database_path) as connection:
+            rows = connection.execute(
+                """
+                SELECT method, expected_return, confidence
+                FROM cma_results
+                ORDER BY method
+                """
+            ).fetchall()
+
+        self.assertEqual(
+            rows,
+            [
+                ("historical_erp", 0.08, 0.6),
+                ("inverse_gordon", None, None),
+            ],
+        )
 
 
 if __name__ == "__main__":

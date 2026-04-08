@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -45,7 +46,7 @@ TABLE_SCHEMAS: dict[str, tuple[ColumnDefinition, ...]] = {
         ColumnDefinition("timestamp", "TEXT", "NOT NULL"),
         ColumnDefinition("asset_slug", "TEXT", "NOT NULL"),
         ColumnDefinition("method", "TEXT", "NOT NULL"),
-        ColumnDefinition("expected_return", "REAL", "NOT NULL", additive_repair_default="0"),
+        ColumnDefinition("expected_return", "REAL"),
         ColumnDefinition("confidence", "REAL"),
         ColumnDefinition("raw_output_json", "TEXT"),
     ),
@@ -105,6 +106,66 @@ def initialize_database(database_path: str | Path = "database/portfolio.db") -> 
         connection.commit()
 
     return resolved_path
+
+
+def persist_macro_view(database_path: str | Path, macro_view: object) -> None:
+    payload = macro_view.to_dict()
+    with sqlite3.connect(database_path) as connection:
+        connection.execute(
+            """
+            INSERT INTO macro_views (
+                timestamp,
+                regime,
+                confidence,
+                composite_score,
+                recession_probability,
+                scores_json,
+                key_indicators_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                payload["timestamp"],
+                payload["regime"],
+                payload["confidence"],
+                payload["composite_score"],
+                payload["recession_probability"],
+                json.dumps(payload["scores"], sort_keys=True),
+                json.dumps(payload["key_indicators"], sort_keys=True),
+            ),
+        )
+        connection.commit()
+
+
+def persist_cma_methods(database_path: str | Path, asset_slug: str, timestamp: str, methods: tuple[object, ...]) -> None:
+    rows = []
+    for method in methods:
+        payload = method.to_dict()
+        rows.append(
+            (
+                timestamp,
+                asset_slug,
+                payload["name"],
+                payload["expected_return"],
+                payload["confidence"],
+                json.dumps(payload, sort_keys=True),
+            )
+        )
+
+    with sqlite3.connect(database_path) as connection:
+        connection.executemany(
+            """
+            INSERT INTO cma_results (
+                timestamp,
+                asset_slug,
+                method,
+                expected_return,
+                confidence,
+                raw_output_json
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            rows,
+        )
+        connection.commit()
 
 
 def _ensure_table_schema(
