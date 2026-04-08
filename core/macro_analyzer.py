@@ -21,7 +21,7 @@ class MacroStageResult:
     macro_analysis_path: Path
     indicator_diagnostics: dict[str, dict[str, object | None]]
     unsupported_inputs: tuple[str, ...]
-    partial_inputs: tuple[str, ...]
+    partial_dimensions: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +68,7 @@ def run_macro_stage(output_dir: str | Path, data_provider: MacroDataProvider | N
     unsupported_inputs = tuple(
         sorted(name for name, indicator in indicators.items() if indicator.status in {"unsupported", "missing", "error"})
     )
-    partial_inputs = ("financial_conditions",) if financial_conditions.partial else ()
+    partial_dimensions = ("financial_conditions",) if financial_conditions.partial else ()
     confidence = _confidence_label(indicators, partial_dimensions=(financial_conditions.partial,))
 
     macro_view = MacroView(
@@ -85,8 +85,8 @@ def run_macro_stage(output_dir: str | Path, data_provider: MacroDataProvider | N
             vix=_indicator_value(indicators.get("vix")),
             credit_spreads=_indicator_value(indicators.get("credit_spreads")),
         ),
-        outlook=_build_outlook(regime, confidence, unsupported_inputs, partial_inputs),
-        risks=_build_risks(regime, unsupported_inputs, partial_inputs),
+        outlook=_build_outlook(regime, confidence, unsupported_inputs, partial_dimensions),
+        risks=_build_risks(regime, unsupported_inputs, partial_dimensions),
         allocation_implications=_allocation_implications(regime, confidence),
     )
 
@@ -103,7 +103,7 @@ def run_macro_stage(output_dir: str | Path, data_provider: MacroDataProvider | N
     payload = macro_view.to_dict()
     payload["indicator_diagnostics"] = diagnostics
     payload["unsupported_inputs"] = list(unsupported_inputs)
-    payload["partial_inputs"] = list(partial_inputs)
+    payload["partial_dimensions"] = list(partial_dimensions)
 
     output_root = Path(output_dir)
     macro_view_path = write_json(output_root / "macro_view.json", payload)
@@ -117,7 +117,7 @@ def run_macro_stage(output_dir: str | Path, data_provider: MacroDataProvider | N
         macro_analysis_path=macro_analysis_path,
         indicator_diagnostics=diagnostics,
         unsupported_inputs=unsupported_inputs,
-        partial_inputs=partial_inputs,
+        partial_dimensions=partial_dimensions,
     )
 
 
@@ -251,7 +251,7 @@ def _build_outlook(
     regime: str,
     confidence: str,
     unsupported_inputs: tuple[str, ...],
-    partial_inputs: tuple[str, ...],
+    partial_dimensions: tuple[str, ...],
 ) -> str:
     base = {
         "expansion": "Broad macro signals still point to expansion, but downstream assets should watch for overheating.",
@@ -262,14 +262,18 @@ def _build_outlook(
     limitations: list[str] = []
     if unsupported_inputs:
         limitations.append("Several macro inputs are unavailable from the current provider.")
-    if partial_inputs:
-        limitations.append("Financial conditions are only partially observed because credit-spread data is unavailable.")
+    if partial_dimensions:
+        limitations.append("Some financial-condition indicators are unavailable, so financial conditions are only partially observed.")
     if confidence == "low" and not limitations:
         limitations.append("Signal confidence is low because the available evidence is thin.")
     return " ".join([base, *limitations]).strip()
 
 
-def _build_risks(regime: str, unsupported_inputs: tuple[str, ...], partial_inputs: tuple[str, ...]) -> tuple[str, ...]:
+def _build_risks(
+    regime: str,
+    unsupported_inputs: tuple[str, ...],
+    partial_dimensions: tuple[str, ...],
+) -> tuple[str, ...]:
     risks = {
         "expansion": ["Inflation could re-accelerate and provoke tighter policy.", "Rich risk-asset pricing could amplify drawdowns."],
         "late_cycle": ["Policy stays restrictive for longer.", "Funding conditions tighten abruptly if volatility rises."],
@@ -278,7 +282,7 @@ def _build_risks(regime: str, unsupported_inputs: tuple[str, ...], partial_input
     }[regime]
     if unsupported_inputs:
         risks.append("Unsupported macro series reduce conviction in the regime call.")
-    if partial_inputs:
+    if partial_dimensions:
         risks.append("Credit-spread blind spots can understate funding stress.")
     return tuple(risks[:4])
 

@@ -5,6 +5,8 @@ import unittest
 from dataclasses import dataclass
 from pathlib import Path
 
+import yaml
+
 from core.data_fetcher import MacroIndicatorValue
 from core.macro_analyzer import run_macro_stage
 
@@ -151,7 +153,7 @@ class MacroAgentTests(unittest.TestCase):
         self.assertAlmostEqual(result.macro_view.composite_score, 0.2)
         self.assertIn("gdp_growth_yoy", result.unsupported_inputs)
         self.assertIn("credit_spreads", result.unsupported_inputs)
-        self.assertEqual(result.partial_inputs, ("financial_conditions",))
+        self.assertEqual(result.partial_dimensions, ("financial_conditions",))
 
         payload = json.loads((self.workspace / "macro_view.json").read_text(encoding="utf-8"))
         self.assertEqual(payload["confidence"], "low")
@@ -159,7 +161,7 @@ class MacroAgentTests(unittest.TestCase):
             payload["unsupported_inputs"],
             ["cpi_yoy", "credit_spreads", "fed_funds_rate", "gdp_growth_yoy"],
         )
-        self.assertEqual(payload["partial_inputs"], ["financial_conditions"])
+        self.assertEqual(payload["partial_dimensions"], ["financial_conditions"])
         self.assertIn("unavailable", payload["outlook"].lower())
         self.assertEqual(payload["key_indicators"]["gdp_growth_yoy"], None)
         self.assertEqual(payload["indicator_diagnostics"]["vix"]["status"], "ok")
@@ -214,10 +216,62 @@ class MacroAgentTests(unittest.TestCase):
         result = run_macro_stage(output_dir=self.workspace, data_provider=provider)
 
         self.assertIn("vix", result.unsupported_inputs)
-        self.assertEqual(result.partial_inputs, ("financial_conditions",))
+        self.assertEqual(result.partial_dimensions, ("financial_conditions",))
         payload = json.loads((self.workspace / "macro_view.json").read_text(encoding="utf-8"))
         self.assertIn("vix", payload["unsupported_inputs"])
-        self.assertEqual(payload["partial_inputs"], ["financial_conditions"])
+        self.assertEqual(payload["partial_dimensions"], ["financial_conditions"])
+
+    def test_run_macro_stage_keeps_vix_error_explicit_when_financial_conditions_are_partial(self) -> None:
+        provider = _StubMacroProvider(
+            indicators={
+                "gdp_growth_yoy": MacroIndicatorValue(
+                    name="gdp_growth_yoy",
+                    value=2.1,
+                    as_of="2026-04-09T12:00:00Z",
+                    source_ticker="GDP",
+                    status="ok",
+                ),
+                "cpi_yoy": MacroIndicatorValue(
+                    name="cpi_yoy",
+                    value=2.5,
+                    as_of="2026-04-09T12:00:00Z",
+                    source_ticker="CPI",
+                    status="ok",
+                ),
+                "fed_funds_rate": MacroIndicatorValue(
+                    name="fed_funds_rate",
+                    value=3.0,
+                    as_of="2026-04-09T12:00:00Z",
+                    source_ticker="FEDFUNDS",
+                    status="ok",
+                ),
+                "vix": MacroIndicatorValue(
+                    name="vix",
+                    value=None,
+                    as_of=None,
+                    source_ticker="^VIX",
+                    status="error",
+                    message="vix feed unavailable",
+                ),
+                "credit_spreads": MacroIndicatorValue(
+                    name="credit_spreads",
+                    value=165.0,
+                    as_of="2026-04-09T12:00:00Z",
+                    source_ticker="BAMLH0A0HYM2",
+                    status="ok",
+                ),
+            }
+        )
+
+        result = run_macro_stage(output_dir=self.workspace, data_provider=provider)
+
+        self.assertIn("vix", result.unsupported_inputs)
+        self.assertEqual(result.partial_dimensions, ("financial_conditions",))
+        payload = json.loads((self.workspace / "macro_view.json").read_text(encoding="utf-8"))
+        self.assertIn("vix", payload["unsupported_inputs"])
+        self.assertEqual(payload["partial_dimensions"], ["financial_conditions"])
+        self.assertEqual(payload["indicator_diagnostics"]["vix"]["status"], "error")
+        self.assertIn("some financial-condition indicators are unavailable", payload["outlook"].lower())
 
     def test_macro_agent_wrapper_files_document_runtime_contract(self) -> None:
         agent_yaml = Path("agents/macro_agent/agent.yaml")
@@ -227,6 +281,7 @@ class MacroAgentTests(unittest.TestCase):
         self.assertTrue(prompts_md.exists())
 
         agent_text = agent_yaml.read_text(encoding="utf-8")
+        agent_payload = yaml.safe_load(agent_text)
         prompt_text = prompts_md.read_text(encoding="utf-8")
 
         self.assertIn("kind: macro-agent", agent_text)
@@ -235,6 +290,8 @@ class MacroAgentTests(unittest.TestCase):
         self.assertIn("prompt_template: ./prompts.md", agent_text)
         self.assertIn("macro_view.json", agent_text)
         self.assertIn("macro_analysis.md", agent_text)
+        self.assertEqual(agent_payload["shared_files"]["prompt_template"], "./prompts.md")
+        self.assertIn("partial_dimensions", agent_payload["contract"]["extra_fields"])
         self.assertIn("Chief Macro Economist", prompt_text)
         self.assertIn("deterministic", prompt_text.lower())
         self.assertIn("unsupported", prompt_text.lower())

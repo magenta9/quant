@@ -25,10 +25,10 @@ contract:
   extra_fields:
     - indicator_diagnostics
     - unsupported_inputs
-    - partial_inputs
+    - partial_dimensions
   field_notes:
     unsupported_inputs: raw indicator names with unsupported, missing, or error status
-    partial_inputs: macro dimension names that were scored from incomplete indicator coverage
+    partial_dimensions: macro dimension names that were scored from incomplete indicator coverage
 notes:
   - Keep regime scoring deterministic.
   - Do not fabricate unsupported GDP, CPI, policy-rate, or credit-spread series.
