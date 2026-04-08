@@ -127,6 +127,32 @@ class PortfolioReportingAgentConfigTests(unittest.TestCase):
         self.assertIn("ips compliance", prompt_text.lower())
         self.assertIn("deterministic", prompt_text.lower())
 
+    def test_cio_agent_wrapper_files_document_selection_contract(self) -> None:
+        agent_yaml = Path("agents/cio_agent/agent.yaml")
+        prompts_md = Path("agents/cio_agent/prompts.md")
+
+        self.assertTrue(agent_yaml.exists())
+        self.assertTrue(prompts_md.exists())
+
+        agent_text = agent_yaml.read_text(encoding="utf-8")
+        agent_payload = yaml.safe_load(agent_text)
+        prompt_text = prompts_md.read_text(encoding="utf-8")
+
+        self.assertIn("kind: cio-agent", agent_text)
+        self.assertIn("module: core.ensemble", agent_text)
+        self.assertIn("callable: run_cio_stage", agent_text)
+        self.assertIn("prompt_template: ./prompts.md", agent_text)
+        self.assertIn("proposal.json", agent_text)
+        self.assertIn("risk_report.json", agent_text)
+        self.assertIn("macro_view.json", agent_text)
+        self.assertIn("board_memo.json", agent_text)
+        self.assertEqual(agent_payload["shared_files"]["prompt_template"], "./prompts.md")
+        self.assertEqual(agent_payload["contract"]["json_contract"], "core.contracts.CIOBoardMemoOutput")
+        self.assertIn("Chief Investment Officer", prompt_text)
+        self.assertIn("recommendation rationale", prompt_text.lower())
+        self.assertIn("deterministic", prompt_text.lower())
+        self.assertIn("do not imply approvals", prompt_text.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
