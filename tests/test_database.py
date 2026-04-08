@@ -1,9 +1,19 @@
+import json
 import sqlite3
 import unittest
 from pathlib import Path
 
-from core.contracts import CMAMethodEstimate
-from core.database import SchemaDriftError, initialize_database, persist_cma_methods
+from core.contracts import (
+    CROBacktestMetrics,
+    CROConcentrationMetrics,
+    CROExAnteMetrics,
+    CROFactorTilts,
+    CROIPSDiagnostic,
+    CRORiskReportOutput,
+    CMAMethodEstimate,
+    PortfolioProposalOutput,
+)
+from core.database import SchemaDriftError, initialize_database, persist_cma_methods, persist_portfolio_stage
 
 
 class DatabaseInitializationTests(unittest.TestCase):
@@ -244,6 +254,89 @@ class DatabaseInitializationTests(unittest.TestCase):
                 ("inverse_gordon", None, None),
             ],
         )
+
+    def test_persist_portfolio_stage_stores_full_json_payloads(self) -> None:
+        initialize_database(self.database_path)
+
+        proposal = PortfolioProposalOutput(
+            timestamp="2026-04-09T12:00:00Z",
+            method="max_sharpe",
+            category="return_optimized",
+            weights={"us_large_cap": 0.55, "cash": 0.45},
+            expected_return=0.071,
+            expected_volatility=0.102,
+            sharpe_ratio=0.5,
+            max_drawdown=None,
+            effective_n=1.98,
+            concentration=0.505,
+            metadata={"constraint_projection_applied": True},
+        )
+        risk_report = CRORiskReportOutput(
+            method="max_sharpe",
+            ex_ante=CROExAnteMetrics(
+                volatility=0.102,
+                portfolio_return=0.071,
+                sharpe=0.5,
+                var_95=-0.097,
+                cvar_95=-0.14,
+            ),
+            backtest=CROBacktestMetrics(
+                annual_return=0.065,
+                annual_vol=0.11,
+                sharpe=0.41,
+                max_drawdown=-0.19,
+                calmar=0.34,
+                sortino_ratio=0.55,
+            ),
+            concentration=CROConcentrationMetrics(
+                effective_n=1.98,
+                herfindahl=0.505,
+                top5_concentration=1.0,
+                max_weight=0.55,
+            ),
+            factor_tilts=CROFactorTilts(
+                equity_beta=0.55,
+                duration=0.0,
+                credit_spread=0.0,
+                dollar_exposure=1.0,
+            ),
+            ips_compliance=CROIPSDiagnostic(
+                tracking_error=0.08,
+                within_tracking_budget=False,
+                asset_bounds_ok=True,
+                passes=False,
+                violations=("optimizer raw weights breached IPS bounds; deterministic projection applied before reporting",),
+            ),
+        )
+
+        persist_portfolio_stage(
+            self.database_path,
+            proposals=(proposal,),
+            risk_reports=((proposal.timestamp, risk_report),),
+        )
+
+        with sqlite3.connect(self.database_path) as connection:
+            stored_proposal = connection.execute(
+                """
+                SELECT method, category, weights_json, expected_return, expected_vol
+                FROM portfolio_proposals
+                """
+            ).fetchone()
+            stored_risk_report = connection.execute(
+                """
+                SELECT method, ex_ante_json, ips_compliance_json
+                FROM risk_reports
+                """
+            ).fetchone()
+
+        self.assertEqual(stored_proposal[0], "max_sharpe")
+        self.assertEqual(stored_proposal[1], "return_optimized")
+        self.assertEqual(json.loads(stored_proposal[2]), {"cash": 0.45, "us_large_cap": 0.55})
+        self.assertAlmostEqual(stored_proposal[3], 0.071, places=12)
+        self.assertAlmostEqual(stored_proposal[4], 0.102, places=12)
+        self.assertEqual(stored_risk_report[0], "max_sharpe")
+        self.assertEqual(json.loads(stored_risk_report[1])["return"], 0.071)
+        self.assertTrue(json.loads(stored_risk_report[2])["violations"])
 
 
 if __name__ == "__main__":

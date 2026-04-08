@@ -5,6 +5,7 @@ import sqlite3
 import unittest
 from dataclasses import dataclass
 from pathlib import Path
+from unittest.mock import patch
 
 from core.assets import ASSET_ORDER
 from core.data_fetcher import AssetHistoryResult, HistoricalPricePoint, MacroIndicatorValue, ProxyTickerMetadata
@@ -151,6 +152,20 @@ class PipelineTests(unittest.TestCase):
             cma_count = connection.execute("SELECT COUNT(*) FROM cma_results").fetchone()[0]
             proposal_count = connection.execute("SELECT COUNT(*) FROM portfolio_proposals").fetchone()[0]
             risk_report_count = connection.execute("SELECT COUNT(*) FROM risk_reports").fetchone()[0]
+            stored_proposal = connection.execute(
+                """
+                SELECT method, category, weights_json, expected_return, expected_vol
+                FROM portfolio_proposals
+                WHERE method = 'max_sharpe'
+                """
+            ).fetchone()
+            stored_risk_report = connection.execute(
+                """
+                SELECT method, ex_ante_json, ips_compliance_json
+                FROM risk_reports
+                WHERE method = 'max_sharpe'
+                """
+            ).fetchone()
             unavailable_rows = connection.execute(
                 """
                 SELECT COUNT(*)
@@ -165,6 +180,80 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(proposal_count, 5)
         self.assertEqual(risk_report_count, 5)
         self.assertEqual(unavailable_rows, 18)
+        self.assertEqual(stored_proposal[0], "max_sharpe")
+        self.assertEqual(stored_proposal[1], "return_optimized")
+        self.assertAlmostEqual(sum(json.loads(stored_proposal[2]).values()), 1.0, places=8)
+        self.assertGreater(stored_proposal[3], 0.0)
+        self.assertGreater(stored_proposal[4], 0.0)
+        self.assertEqual(stored_risk_report[0], "max_sharpe")
+        self.assertIn("volatility", json.loads(stored_risk_report[1]))
+        self.assertTrue(json.loads(stored_risk_report[2])["violations"])
+
+    def test_run_phase2_pipeline_uses_pinned_mvp_method_list_even_if_registry_grows(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+
+        extra_method_name = "future_method"
+
+        def _unexpected_method(**kwargs):
+            raise AssertionError("pipeline should not execute registry methods outside the pinned MVP set")
+
+        with patch.dict("core.pipeline.METHOD_REGISTRY", {extra_method_name: _unexpected_method}, clear=False):
+            result = run_phase2_pipeline(
+                ips_path=Path("config/ips.md"),
+                output_root=self.workspace / "output" / "runs",
+                database_path=self.database_path,
+                data_provider=provider,
+                run_id="run-phase2-pinned-methods",
+            )
+
+        self.assertEqual(
+            tuple(proposal.method for proposal in result.portfolio_proposals),
+            (
+                "equal_weight",
+                "inverse_volatility",
+                "max_sharpe",
+                "global_min_variance",
+                "risk_parity",
+            ),
+        )
+
+    def test_run_phase2_pipeline_keeps_portfolio_and_risk_persistence_atomic_on_method_failure(self) -> None:
+        from core.pipeline import run_phase2_pipeline
+        from core.portfolio_optimizer import optimize_portfolio as real_optimize_portfolio
+
+        provider = _StubPipelineProvider(monthly_returns={"cash": 0.0015, "us_large_cap": 0.009})
+
+        def _blow_up_on_last_method(*, method: str, **kwargs):
+            if method == "risk_parity":
+                raise RuntimeError("simulated phase3 method failure")
+            return real_optimize_portfolio(method=method, **kwargs)
+
+        with patch("core.pipeline.optimize_portfolio", side_effect=_blow_up_on_last_method):
+            with self.assertRaisesRegex(RuntimeError, "simulated phase3 method failure"):
+                run_phase2_pipeline(
+                    ips_path=Path("config/ips.md"),
+                    output_root=self.workspace / "output" / "runs",
+                    database_path=self.database_path,
+                    data_provider=provider,
+                    run_id="run-phase2-atomicity-failure",
+                )
+
+        with sqlite3.connect(self.database_path) as connection:
+            proposal_count = connection.execute("SELECT COUNT(*) FROM portfolio_proposals").fetchone()[0]
+            risk_report_count = connection.execute("SELECT COUNT(*) FROM risk_reports").fetchone()[0]
+
+        self.assertEqual(proposal_count, 0)
+        self.assertEqual(risk_report_count, 0)
+        self.assertEqual(
+            list((self.workspace / "output" / "runs" / "run-phase2-atomicity-failure" / "portfolio").rglob("proposal.json")),
+            [],
+        )
+        self.assertEqual(
+            list((self.workspace / "output" / "runs" / "run-phase2-atomicity-failure" / "risk").rglob("risk_report.json")),
+            [],
+        )
 
     def test_run_phase2_pipeline_rejects_ips_that_do_not_cover_all_registered_assets(self) -> None:
         from core.pipeline import run_phase2_pipeline

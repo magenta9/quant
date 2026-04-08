@@ -14,13 +14,20 @@ from core.database import (
     initialize_database,
     persist_cma_methods,
     persist_macro_view,
-    persist_portfolio_proposal,
-    persist_risk_report,
+    persist_portfolio_stage,
 )
 from core.macro_analyzer import MacroStageResult, run_macro_stage
 from core.portfolio_optimizer import METHOD_REGISTRY, optimize_portfolio
 from core.risk_metrics import build_risk_report
 from core.utils import ensure_directory, generate_run_id, write_json
+
+MVP_PORTFOLIO_METHODS = (
+    "equal_weight",
+    "inverse_volatility",
+    "max_sharpe",
+    "global_min_variance",
+    "risk_parity",
+)
 
 
 class Phase2DataProvider(Protocol):
@@ -111,7 +118,9 @@ def run_phase2_pipeline(
 
     portfolio_proposals = []
     risk_reports = []
-    for method in METHOD_REGISTRY:
+    for method in MVP_PORTFOLIO_METHODS:
+        if method not in METHOD_REGISTRY:
+            raise ValueError(f"MVP portfolio method '{method}' is not registered")
         proposal = optimize_portfolio(
             method=method,
             covariance_output=covariance_output,
@@ -119,8 +128,6 @@ def run_phase2_pipeline(
             generated_at=macro_result.macro_view.timestamp,
             risk_free_rate=risk_free_rate,
         )
-        write_json(portfolio_directory / method / "proposal.json", proposal.to_dict())
-        persist_portfolio_proposal(resolved_database_path, proposal)
         portfolio_proposals.append(proposal)
 
         risk_report = build_risk_report(
@@ -137,13 +144,19 @@ def run_phase2_pipeline(
             asset_slugs=ips_assets,
         )
         risk_report = annotate_projection_violations(risk_report, proposal=proposal)
-        write_json(risk_directory / method / "risk_report.json", risk_report.to_dict())
-        persist_risk_report(
-            resolved_database_path,
-            timestamp=macro_result.macro_view.timestamp,
-            risk_report=risk_report,
-        )
         risk_reports.append(risk_report)
+
+    portfolio_proposals = tuple(portfolio_proposals)
+    risk_reports = tuple(risk_reports)
+    persist_portfolio_stage(
+        resolved_database_path,
+        proposals=portfolio_proposals,
+        risk_reports=tuple((macro_result.macro_view.timestamp, risk_report) for risk_report in risk_reports),
+    )
+    for proposal in portfolio_proposals:
+        write_json(portfolio_directory / proposal.method / "proposal.json", proposal.to_dict())
+    for risk_report in risk_reports:
+        write_json(risk_directory / risk_report.method / "risk_report.json", risk_report.to_dict())
 
     return Phase2PipelineResult(
         run_id=active_run_id,
@@ -152,8 +165,8 @@ def run_phase2_pipeline(
         macro_result=macro_result,
         asset_results=tuple(asset_results),
         covariance_output=covariance_output,
-        portfolio_proposals=tuple(portfolio_proposals),
-        risk_reports=tuple(risk_reports),
+        portfolio_proposals=portfolio_proposals,
+        risk_reports=risk_reports,
         database_path=resolved_database_path,
     )
 
