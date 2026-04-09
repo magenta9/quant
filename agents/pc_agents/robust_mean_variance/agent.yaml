@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "robust_mean_variance"
+  role: "Robust Mean-Variance Portfolio Constructor"
+metadata:
+  method_slug: "robust_mean_variance"
+  method_name: "Robust Mean-Variance"
+  method_category: "return_optimized"
+  objective: "Reduce estimation sensitivity by shrinking returns and adding a covariance ridge before optimization."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "shrunk_asset_cma_vector"
+  solver_style: "regularized_optimization"
+  skill_path: "skills/robust_mean_variance/SKILL.md"

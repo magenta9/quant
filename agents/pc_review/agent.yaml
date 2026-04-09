@@ -1,0 +1,24 @@
+version: 1
+kind: pc-review-agent
+agent:
+  family: portfolio_governance
+  role: Peer Review Portfolio Analyst
+  slug: pc_review
+  stage: 5
+  dependencies:
+    - cro_agent
+purpose: >-
+  Deterministic peer-review wrapper used to score same-category and cross-category
+  portfolio proposals before vote tallying and shortlist generation.
+runtime:
+  module: core.voting
+  callable: run_peer_review
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - output/runs/{run_id}/portfolio/{pc_method}/proposal.json
+  - output/runs/{run_id}/risk/{pc_method}/risk_report.json
+outputs:
+  - output/runs/{run_id}/governance/peer_reviews.json
+contract:
+  json_contract: core.voting.PeerReview

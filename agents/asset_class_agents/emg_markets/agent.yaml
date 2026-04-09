@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "emg_markets"
+  role: "Emg Markets Equity Analyst"
+metadata:
+  asset_slug: "emg_markets"
+  asset_name: "Emg Markets Equity"
+  benchmark_label: "MXEF Index"
+  proxy_ticker: "VWO"
+  group: "equity"
+  category: "emerging_equity"
+  macro_tags:
+    - "growth"
+    - "dollar"
+    - "risk"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

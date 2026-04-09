@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "intl_sovereign"
+  role: "Intl Sovereign Analyst"
+metadata:
+  asset_slug: "intl_sovereign"
+  asset_name: "Intl Sovereign"
+  benchmark_label: "LEGATRUU Index"
+  proxy_ticker: "BWX"
+  group: "fixed_income"
+  category: "international_fixed_income"
+  macro_tags:
+    - "rates"
+    - "dollar"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

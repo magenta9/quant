@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "minimum_correlation"
+  role: "Minimum Correlation Portfolio Constructor"
+metadata:
+  method_slug: "minimum_correlation"
+  method_name: "Minimum Correlation"
+  method_category: "risk_structured"
+  objective: "Favor sleeves with lower average pairwise correlation while remaining long-only and fully invested."
+  primary_risk_input: "derived_correlation_matrix"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "deterministic_scoring"
+  skill_path: "skills/minimum_correlation/SKILL.md"

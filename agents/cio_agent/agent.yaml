@@ -1,0 +1,37 @@
+version: 1
+kind: cio-agent
+agent:
+  family: portfolio_governance
+  role: Chief Investment Officer
+  slug: cio_agent
+  stage: 6
+  dependencies:
+    - macro_agent
+    - cro_agent
+purpose: >-
+  Thin CIO wrapper around deterministic ensemble selection. The CIO layer should
+  compare supported ensemble methods, preserve transparent method-level weights,
+  and summarize the final recommendation without inventing governance workflows.
+runtime:
+  module: core.ensemble
+  callable: run_cio_stage
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - config/ips.md
+  - output/runs/{run_id}/macro/macro_view.json
+  - output/runs/{run_id}/portfolio/{pc_method}/proposal.json for all candidate methods
+  - output/runs/{run_id}/risk/{pc_method}/risk_report.json for all candidate methods
+outputs:
+  - output/runs/{run_id}/cio/board_memo.json
+  - output/runs/{run_id}/cio/board_memo.md
+contract:
+  json_contract: core.contracts.CIOBoardMemoOutput
+  field_notes:
+    selected_ensemble: supported ensemble slug selected by the deterministic CIO layer
+    ensemble_weights: method contribution weights used to blend candidate portfolio proposals
+    portfolio_summary: includes tracking_error_vs_60_40 sourced from CRO diagnostics
+notes:
+  - Keep ensemble logic deterministic and explainable.
+  - Do not invent committee votes, approvals, or manual review steps that are not part of the pipeline.
+  - Surface recommendation rationale from the selected ensemble and underlying CRO diagnostics.

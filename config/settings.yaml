@@ -1,0 +1,73 @@
+# Environment-driven runtime settings for the MVP foundation.
+# Future runtime code should resolve each `env` key first and fall back to `default`.
+# Relative path defaults and env-provided relative paths should be resolved from the
+# resolved `project_root` (repo root by default).
+
+data_provider:
+  market_data:
+    env: QUANT_DATA_PROVIDER
+    default: yfinance
+  request_timeout_seconds:
+    env: QUANT_DATA_TIMEOUT_SECONDS
+    default: 30
+  cache_enabled:
+    env: QUANT_DATA_CACHE_ENABLED
+    default: true
+
+paths:
+  project_root:
+    env: QUANT_PROJECT_ROOT
+    default: .
+  output_root:
+    env: QUANT_OUTPUT_ROOT
+    default: output
+  runs_root:
+    env: QUANT_RUNS_ROOT
+    default: output/runs
+  database_path:
+    env: QUANT_DATABASE_PATH
+    default: database/portfolio.db
+  ips_path:
+    env: QUANT_IPS_PATH
+    default: config/ips.md
+
+models:
+  narrative_provider:
+    env: QUANT_LLM_PROVIDER
+    default: anthropic
+  temperature:
+    env: QUANT_LLM_TEMPERATURE
+    default: 0.2
+  max_tokens:
+    env: QUANT_LLM_MAX_TOKENS
+    default: 2000
+  anthropic:
+    api_key_env: ANTHROPIC_API_KEY
+    model:
+      env: QUANT_ANTHROPIC_MODEL
+      default: claude-3-7-sonnet-latest
+  openai:
+    api_key_env: OPENAI_API_KEY
+    model:
+      env: QUANT_OPENAI_MODEL
+      default: gpt-4.1
+
+run_mode:
+  deterministic_only:
+    env: QUANT_DETERMINISTIC_ONLY
+    default: true
+  enable_narrative_llm:
+    env: QUANT_ENABLE_NARRATIVE_LLM
+    default: false
+  persist_artifacts:
+    env: QUANT_PERSIST_ARTIFACTS
+    default: true
+  persist_database:
+    env: QUANT_PERSIST_DATABASE
+    default: true
+  fail_on_missing_data:
+    env: QUANT_FAIL_ON_MISSING_DATA
+    default: false
+  emit_stub_artifacts:
+    env: QUANT_EMIT_STUB_ARTIFACTS
+    default: true

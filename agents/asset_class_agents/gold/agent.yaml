@@ -1,0 +1,20 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "gold"
+  role: "Gold Analyst"
+metadata:
+  asset_slug: "gold"
+  asset_name: "Gold"
+  benchmark_label: "XAU USD"
+  proxy_ticker: "GLD"
+  group: "real_assets"
+  category: "real_assets"
+  macro_tags:
+    - "inflation"
+    - "dollar"
+    - "risk"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.10

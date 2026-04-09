@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "inverse_volatility"
+  role: "Inverse Volatility Portfolio Constructor"
+metadata:
+  method_slug: "inverse_volatility"
+  method_name: "Inverse Volatility"
+  method_category: "heuristic"
+  objective: "Allocate more weight to lower-volatility sleeves using deterministic volatility estimates from covariance inputs."
+  primary_risk_input: "covariance_diagonal"
+  expected_return_input: "optional_for_reporting"
+  solver_style: "deterministic_rescaling"
+  skill_path: "skills/inverse_volatility/SKILL.md"

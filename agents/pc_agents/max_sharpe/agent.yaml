@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "max_sharpe"
+  role: "Maximum Sharpe Portfolio Constructor"
+metadata:
+  method_slug: "max_sharpe"
+  method_name: "Maximum Sharpe"
+  method_category: "return_optimized"
+  objective: "Maximize ex-ante Sharpe ratio from CMA expected returns and the shared covariance estimate under MVP IPS constraints."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "asset_cma_vector"
+  solver_style: "constrained_optimization"
+  skill_path: "skills/max_sharpe/SKILL.md"

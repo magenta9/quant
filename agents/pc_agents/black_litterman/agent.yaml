@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "black_litterman"
+  role: "Black-Litterman Portfolio Constructor"
+metadata:
+  method_slug: "black_litterman"
+  method_name: "Black-Litterman"
+  method_category: "return_optimized"
+  objective: "Blend equilibrium and CMA views into a posterior return estimate before constrained optimization."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "posterior_return_vector"
+  solver_style: "deterministic_posterior_optimization"
+  skill_path: "skills/black_litterman/SKILL.md"

@@ -1,0 +1,26 @@
+version: 1
+kind: meta-agent
+agent:
+  family: portfolio_governance
+  role: Guarded Meta Improvement Analyst
+  slug: meta_agent
+  stage: 7
+  dependencies:
+    - pc_review
+    - cio_agent
+purpose: >-
+  Evaluate historical feedback and proposed improvements without directly editing
+  production logic, preserving evidence, bounded scope, and rollback requirements.
+runtime:
+  module: core.pipeline
+  callable: run_evaluation_mode
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - database/portfolio.db
+  - output/runs/{run_id}/governance/vote_tallies.json
+  - output/runs/{run_id}/cio/board_memo.json
+outputs:
+  - output/runs/{run_id}/governance/meta_feedback.json
+contract:
+  json_contract: core.pipeline.MetaEvaluationResult

@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "us_interm_treasury"
+  role: "US Interm Treasury Analyst"
+metadata:
+  asset_slug: "us_interm_treasury"
+  asset_name: "US Interm Treasury"
+  benchmark_label: "BPTXY30 Index"
+  proxy_ticker: "IEF"
+  group: "fixed_income"
+  category: "treasury"
+  macro_tags:
+    - "rates"
+    - "credit"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.40

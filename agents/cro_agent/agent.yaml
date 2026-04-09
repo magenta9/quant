@@ -1,0 +1,33 @@
+version: 1
+kind: cro-agent
+agent:
+  family: risk
+  role: Chief Risk Officer
+  slug: cro_agent
+  stage: 5
+purpose: >-
+  Deterministic-first wrapper for standardized portfolio risk reporting. The CRO
+  layer should evaluate each portfolio proposal objectively, serialize the shared
+  risk contract, and narrate findings without recommending allocations.
+runtime:
+  module: core.risk_metrics
+  callable: run_cro_stage
+shared_files:
+  prompt_template: ./prompts.md
+inputs:
+  - config/ips.md
+  - output/runs/{run_id}/portfolio/{pc_method}/proposal.json
+  - output/runs/{run_id}/covariance/covariance_matrix.json
+  - historical returns for all configured asset sleeves
+outputs:
+  - output/runs/{run_id}/risk/{pc_method}/risk_report.json
+  - output/runs/{run_id}/risk/{pc_method}/risk_report.md
+contract:
+  json_contract: core.contracts.CRORiskReportOutput
+  field_notes:
+    ex_ante.return: serialized alias of CROExAnteMetrics.portfolio_return used to match the published CRO schema
+    ips_compliance.passes: true only when tracking-error, asset-bound, and violation checks all pass
+notes:
+  - Keep reporting objective and standardized across portfolio methods.
+  - Surface IPS violations, tracking diagnostics, and factor concentrations explicitly.
+  - Do not express investment views or override deterministic portfolio proposals.

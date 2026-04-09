@@ -1,0 +1,44 @@
+version: 1
+kind: pc-agent
+template: true
+agent:
+  family: portfolio_construction
+  role: "{method_name} Portfolio Constructor"
+  slug: "{method_slug}"
+  stage: 4
+  dependencies:
+    - covariance_agent
+purpose: >-
+  Thin wrapper around the deterministic portfolio optimizer registry. PC wrappers
+  should declare method metadata, rely on shared optimizer logic, and surface IPS
+  constraint diagnostics instead of applying silent overrides.
+runtime:
+  module: core.portfolio_optimizer
+  callable: run_portfolio_method
+  kwargs:
+    method: "{method_slug}"
+inputs:
+  - config/ips.md
+  - output/runs/{run_id}/macro/macro_view.json
+  - output/runs/{run_id}/covariance/covariance_matrix.json
+  - output/runs/{run_id}/assets/{asset_slug}/cma.json for all configured assets
+outputs:
+  - output/runs/{run_id}/portfolio/{method_slug}/proposal.json
+contract:
+  json_contract: core.contracts.PortfolioProposalOutput
+  field_notes:
+    method: portfolio construction method slug emitted by the optimizer registry
+    category: high-level method bucket such as heuristic, return_optimized, or risk_structured
+    metadata: preserve wrapper metadata and any IPS or optimizer diagnostics emitted by the deterministic core
+required_metadata:
+  - method_slug
+  - method_name
+  - method_category
+  - objective
+  - primary_risk_input
+  - expected_return_input
+  - solver_style
+  - skill_path
+notes:
+  - Keep wrappers metadata-only and deterministic-core-first.
+  - Emit explicit diagnostics for infeasible or IPS-limited proposals in metadata.

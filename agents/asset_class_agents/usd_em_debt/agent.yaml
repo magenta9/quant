@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "usd_em_debt"
+  role: "USD Emg Debt Analyst"
+metadata:
+  asset_slug: "usd_em_debt"
+  asset_name: "USD Emg Debt"
+  benchmark_label: "EMUSTOTL Index"
+  proxy_ticker: "EMB"
+  group: "fixed_income"
+  category: "emerging_fixed_income"
+  macro_tags:
+    - "dollar"
+    - "risk"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15

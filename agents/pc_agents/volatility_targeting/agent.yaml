@@ -1,0 +1,14 @@
+version: 1
+extends: ../_base/agent.yaml
+agent:
+  slug: "volatility_targeting"
+  role: "Volatility Targeting Portfolio Constructor"
+metadata:
+  method_slug: "volatility_targeting"
+  method_name: "Volatility Targeting"
+  method_category: "risk_structured"
+  objective: "Blend toward a defensive target volatility when the unconstrained return-seeking portfolio becomes too risky."
+  primary_risk_input: "full_covariance_matrix"
+  expected_return_input: "asset_cma_vector"
+  solver_style: "deterministic_blend"
+  skill_path: "skills/volatility_targeting/SKILL.md"

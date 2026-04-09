@@ -1,0 +1,18 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "cash"
+  role: "Cash Analyst"
+metadata:
+  asset_slug: "cash"
+  asset_name: "Cash"
+  benchmark_label: "US0001M Index"
+  proxy_ticker: "BIL"
+  group: "cash"
+  category: "cash"
+  macro_tags:
+    - "rates"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.20

@@ -1,0 +1,19 @@
+version: 1
+extends: ../_template/agent.yaml
+shared_files:
+  prompt_template: ../_template/prompts.md
+agent:
+  slug: "commodities"
+  role: "Commodities Analyst"
+metadata:
+  asset_slug: "commodities"
+  asset_name: "Commodities"
+  benchmark_label: "GSCI Index"
+  proxy_ticker: "DBC"
+  group: "real_assets"
+  category: "real_assets"
+  macro_tags:
+    - "inflation"
+    - "growth"
+  ips_min_weight: 0.00
+  ips_max_weight: 0.15
