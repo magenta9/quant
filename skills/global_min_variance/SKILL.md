@@ -1,14 +1,14 @@
-# Global Minimum Variance Portfolio Skill
+# 全局最小方差组合技能
 
-Implement the `global_min_variance` MVP portfolio method through `core.portfolio_optimizer.optimize_portfolio`.
+通过 `core.portfolio_optimizer.optimize_portfolio` 实现 `global_min_variance` MVP 组合方法。
 
-## Contract
-- Method name: `global_min_variance`
-- Output: `PortfolioProposalOutput`
-- Constraints: long-only, weights must sum to 1, enforce IPS min/max bounds from `core.assets`
-- The optimizer must surface infeasible IPS universes explicitly instead of silently clipping
+## 约定
+- 方法名：`global_min_variance`
+- 输出：`PortfolioProposalOutput`
+- 约束：仅做多、权重之和必须为 1，并强制执行 `core.assets` 中的 IPS 最小/最大边界
+- 优化器必须显式暴露不可行的 IPS 资产范围，而不是静默裁剪
 
-## Method Rule
-- Minimize total portfolio variance under the shared IPS constraints
-- Reuse the shared covariance estimate and shared risk-metric helpers for proposal statistics
-- Keep the implementation deterministic and auditable for later CRO review
+## 方法规则
+- 在共享 IPS 约束下最小化组合总方差
+- 复用共享协方差估计与共享风险指标辅助函数，生成方案统计信息
+- 保持实现具备确定性且可审计，以便后续 CRO 复核

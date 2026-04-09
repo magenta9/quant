@@ -1,14 +1,14 @@
-# Black-Litterman Portfolio Skill
+# Black-Litterman 组合技能
 
-Implement the `black_litterman` portfolio method through `core.portfolio_optimizer.optimize_portfolio`.
+通过 `core.portfolio_optimizer.optimize_portfolio` 实现 `black_litterman` 组合方法。
 
-## Contract
-- Method name: `black_litterman`
-- Output: `PortfolioProposalOutput`
-- Constraints: long-only, weights must sum to 1, enforce IPS min/max bounds from `core.assets`
-- If the selected universe is infeasible under IPS bounds, raise an explicit error instead of silently clipping
+## 约定
+- 方法名：`black_litterman`
+- 输出：`PortfolioProposalOutput`
+- 约束：仅做多、权重之和必须为 1，并强制执行 `core.assets` 中的 IPS 最小/最大边界
+- 如果所选资产范围在 IPS 边界下不可行，应显式报错，而不是静默裁剪
 
-## Method Rule
-- Blend equilibrium returns implied by the covariance matrix with the CMA expected-return vector to form a posterior view
-- Optimize the posterior view through the shared constrained optimizer layer
-- Preserve posterior and implied return vectors in metadata for auditability
+## 方法规则
+- 将协方差矩阵隐含的均衡收益与 `CMA` 预期收益向量混合，形成后验视图
+- 通过共享受约束优化层优化该后验视图
+- 在元数据中保留后验收益向量和隐含收益向量，以保证可审计性

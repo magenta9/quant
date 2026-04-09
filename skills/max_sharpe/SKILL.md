@@ -1,14 +1,14 @@
-# Max Sharpe Portfolio Skill
+# 最大 Sharpe 组合技能
 
-Implement the `max_sharpe` MVP portfolio method through `core.portfolio_optimizer.optimize_portfolio`.
+通过 `core.portfolio_optimizer.optimize_portfolio` 实现 `max_sharpe` MVP 组合方法。
 
-## Contract
-- Method name: `max_sharpe`
-- Output: `PortfolioProposalOutput`
-- Constraints: long-only, weights must sum to 1, enforce IPS min/max bounds from `core.assets`
-- The optimizer must use the shared covariance estimate plus expected returns and should fail explicitly when the constrained solve is infeasible
+## 约定
+- 方法名：`max_sharpe`
+- 输出：`PortfolioProposalOutput`
+- 约束：仅做多、权重之和必须为 1，并强制执行 `core.assets` 中的 IPS 最小/最大边界
+- 优化器必须使用共享协方差估计和预期收益，并在受约束求解不可行时显式失败
 
-## Method Rule
-- Solve the constrained maximum-Sharpe problem with the shared optimizer interface
-- Use the supplied risk-free rate consistently in optimization and proposal metrics
-- Reuse shared risk helpers so output fields align with the CRO pipeline contract
+## 方法规则
+- 通过共享优化器接口求解受约束的最大 Sharpe 问题
+- 在优化与方案指标中一致使用提供的无风险利率
+- 复用共享风险辅助函数，使输出字段与 CRO 流水线约定保持一致
